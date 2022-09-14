@@ -1,15 +1,16 @@
 #!/usr/bin/python3
 
+import os
 from datetime import datetime
 
 version = 1.0
-bot_name = "@DeezSpot_bot"
-creator = "@Anonimia"
+bot_name = os.environ.get("BOT_NAME", "@")
+creator = "@Anonimia (bot) & J0nan (docker)"
 donation = "https://www.paypal.com/paypalme/an0nimia"
-source_code_bot = "https://github.com/An0nimia/DeezloaderBIB_bot"
+source_code_bot = "https://github.com/J0nan/DeezSpot_bot_docker"
 source_code_lib = "https://pypi.org/project/deezloader/"
-forum = "@deezspot_group"
-active_since = "24/07/2021"
+forum = os.environ.get("FORUM", "@")
+last_update = "14/09/2022"
 date_start = datetime.now()
 last_reset = datetime.strftime(date_start, "%d/%m/%Y %H:%M:%S")
 

@@ -3,34 +3,30 @@
 from pyrogram import Client
 from acrcloud import ACRcloud
 from telegram.ext import Updater
-from configparser import ConfigParser
-from utils.utils import check_config_file
 from deezloader.deezloader import DeeLogin
 from deezloader.spotloader import SpoLogin
-from .bot_settings import settings_file, user_session
+from .bot_settings import user_session
+import os
 
-config = ConfigParser()
-config.read(settings_file)
-check_config_file(config)
 
 class SetConfigs:
 	queues_started, queues_finished = 0, 0
 
-	__arl_token = config['deez_login']['arl']
-	__email_dee = config['deez_login']['mail']
-	__pwd_dee = config['deez_login']['pwd']
+	__arl_token = os.environ.get("ARL_TOKEN")
+	__email_dee = os.environ.get("EMAIL_DEE")
+	__pwd_dee = os.environ.get("PWD_DEE")
 
-	__email_spo = config['spot_login']['mail']
-	__pwd_spo = config['spot_login']['pwd']
+	__email_spo = os.environ.get("EMAIL_SPO")
+	__pwd_spo = os.environ.get("PWD_SPO")
 
-	__bot_token = config['telegram']['bot_token']
+	__bot_token = os.environ.get("BOT_TOKEN")
 
-	__acrcloud_key = config['acrcloud']['key']
-	__acrcloud_secret = config['acrcloud']['secret']
-	__acrcloud_host = config['acrcloud']['host']
+	__acrcloud_key = os.environ.get("ACRCLOUD_KEY")
+	__acrcloud_secret = os.environ.get("ACRCLOUD_SECRET")
+	__acrcloud_host = os.environ.get("ACRCLOUD_HOST")
 
-	__api_id = config['pyrogram']['api_id']
-	__api_hash = config['pyrogram']['api_hash']
+	__api_id = os.environ.get("API_ID")
+	__api_hash = os.environ.get("API_HASH")
 
 	__acrcloud_config = {
 		"key": __acrcloud_key,
@@ -57,5 +53,5 @@ class SetConfigs:
 		cls.spot_api = SpoLogin(cls.__email_spo, cls.__pwd_spo)
 
 		cls.acrcloud_api = ACRcloud(cls.__acrcloud_config)
-		cls.tg_user_api = Client(user_session, config_file = settings_file)
+		cls.tg_user_api = Client(user_session, cls.__api_id, cls.__api_hash, cls.__bot_token)
 		cls.tg_user_api.start()

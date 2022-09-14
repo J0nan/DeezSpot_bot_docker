@@ -1,0 +1,42 @@
+version: '3'
+
+services:
+
+  deezspot_bot:
+    image: j0n4n/deezspot_bot
+    container_name: deezspot_bot
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - 'WARNING_BANNING=4'
+      - 'USER_ERRORS='
+      - 'BUNKER_CHANNEL='
+      - 'OWL_CHANNEL='
+      - 'ROOT_IDS='
+      - 'RECURSIVE_QUALITY='
+      - 'RECURSIVE_DOWNLOAD='
+      - 'MAKE_ZIP='
+      - 'METHOD_SAVE='
+      - 'IS_THREAD='
+      - 'DONLOAD_DIR_MAX_SIZE='
+      - 'PROGRESS_STATUS_RATE='
+      - 'TIME_SLEEP='
+      - 'SECONDS_LIMITS_ALBUM='
+      - 'SECONDS_LIMITS_TRACK='
+      - 'UPLOAD_MAX_SIZE_USER='
+      - 'MAX_SONGS_PER_PLAYLIST='
+      - 'MAX_DOWNLOAD_USER='
+      - 'BOT_NAME='
+      - 'ARL_TOKEN='
+      - 'EMAIL_DEE='
+      - 'PWD_DEE='
+      - 'EMAIL_SPO='
+      - 'PWD_SPO='
+      - 'BOT_TOKEN='
+      - 'ACRCLOUD_KEY='
+      - 'ACRCLOUD_SECRET='
+      - 'ACRCLOUD_HOST='
+      - 'API_ID='
+      - 'API_HASH='
+      - ''
+      - ''

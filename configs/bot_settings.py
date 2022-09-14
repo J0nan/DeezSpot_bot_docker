@@ -1,8 +1,15 @@
 #!/usr/bin/python3
 
+import os
 from logging import ERROR, INFO
 from utils.converter_bytes import convert_bytes_to
 from telegram.constants import MAX_FILESIZE_DOWNLOAD
+
+def get_env(name, message, cast=str):
+	if name in os.environ:
+		return os.environ[name].strip()
+	else:
+		return message
 
 logs_path = "logs/"
 log_downloads = f"{logs_path}downloads.log"
@@ -17,39 +24,36 @@ logger_names = [
 	("links", INFO, log_links)
 ]
 
-warning_for_banning = 4
+warning_for_banning = int(os.environ.get('WARNING_BANNING',4))
 user_session = "my_account"
-user_errors = -1001523039121
-bunker_channel = -1001765915818
-owl_channel = -1001796741236
+user_errors = os.environ.get('USER_ERRORS')
+bunker_channel = os.environ.get('BUNKER_CHANNEL')
+owl_channel = os.environ.get('OWL_CHANNEL')
 db_name = "deez_bot.db"
-settings_file = ".deez_settings.ini"
 
-root_ids = {
-	1270777127, 1933220289
-}
+root_ids = inputs = list(os.environ.get("ROOT_IDS").strip().replace(" ", "").split(','))
 
 output_songs = "Songs/"
 output_shazam = "Records/"
-recursive_quality = True
-recursive_download = True
-make_zip = True
-method_save = 3
-is_thread = True
-download_dir_max_size = 6 #GB
-progress_status_rate = 15
+recursive_quality = os.environ.get("RECURSIVE_QUALITY", True)
+recursive_download = os.environ.get("RECURSIVE_DOWNLOAD", True)
+make_zip = os.environ.get("MAKE_ZIP", True)
+method_save = int(os.environ.get('METHOD_SAVE',3))
+is_thread = os.environ.get("IS_THREAD", True)
+download_dir_max_size = int(os.environ.get("DONLOAD_DIR_MAX_SIZE", 6)) #GB
+progress_status_rate = int(os.environ.get("PROGRESS_STATUS_RATE", 15))
 
 supported_link = [
 	"www.deezer.com", "open.spotify.com",
 	"deezer.com", "spotify.com", "deezer.page.link"
 ]
 
-time_sleep = 8
-seconds_limits_album = 30000 #seconds
-seconds_limits_track = 7200
-upload_max_size_user = 2 #GB
-max_song_per_playlist = 200
-max_download_user = 3
+time_sleep = int(os.environ.get("TIME_SLEEP", 8))
+seconds_limits_album = int(os.environ.get("SECONDS_LIMITS_ALBUM", 30000)) #seconds
+seconds_limits_track = int(os.environ.get("SECONDS_LIMITS_TRACK", 7200))
+upload_max_size_user = int(os.environ.get("UPLOAD_MAX_SIZE_USER", 2)) #GB
+max_song_per_playlist = int(os.environ.get("MAX_SONGS_PER_PLAYLIST", 200))
+max_download_user = int(os.environ.get("MAX_DOWNLOAD_USER", 3))
 
 recorded_file_max_size = int(
 	convert_bytes_to(

@@ -6,7 +6,7 @@ from configs.bot_settings import root_ids, warning_for_banning
 from configs.customs import (
 	banning_msg1, banning_msg2,
 	version, bot_name, creator,
-	forum, active_since,
+	forum, last_update,
 	last_reset, date_start
 )
 
@@ -128,7 +128,7 @@ def get_info():
 
 	info_msg = (
 		f"🔺 Version: {version}\
-		\n📅 Active since: {active_since}\
+		\n📅 Last Update: {last_update}\
 		\n🔻 Name: {bot_name}\
 		\n✒️ Creator: {creator}\
 		\n📅 Last reset: {last_reset}\

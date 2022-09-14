@@ -40,33 +40,6 @@ __qualities_spo = list(
 	spo_qualities.keys()
 )
 
-def check_config_file(config):
-	if not "arl" in config['deez_login']:
-		print("Something went wrong with the login token in the configuration file")
-		exit()
-
-	if (
-		not "api_id" in config['pyrogram']
-	) or (
-		not "api_hash" in config['pyrogram']
-	):
-		print("Something went wrong with pyrogram in the configuration file")
-		exit()
-
-	if not "bot_token" in config['telegram']:
-		print("Something went wrong with the telegram token in the configuration file")
-		exit()
-
-	if (
-		not "key" in config['acrcloud']
-	) or (
-		not "secret" in config['acrcloud']
-	) or (
-		not "host" in config['acrcloud']
-	):
-		print("Something went wrong with acrcloud in the configuration file")
-		exit()
-
 def get_netloc(link):
 	netloc = urlparse(link).netloc
 
