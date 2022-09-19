@@ -182,7 +182,7 @@ def create_log_dir():
 	if not isdir(logs_path):
 		mkdir(logs_path)
 
-def logging_bot() -> list[Logger]:
+def logging_bot() -> list:
 	formatter = Formatter(
 		"%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 	)

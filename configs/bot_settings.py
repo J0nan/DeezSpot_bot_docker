@@ -26,12 +26,12 @@ logger_names = [
 
 warning_for_banning = int(os.environ.get('WARNING_BANNING',4))
 user_session = "my_account"
-user_errors = os.environ.get('USER_ERRORS')
-bunker_channel = os.environ.get('BUNKER_CHANNEL')
-owl_channel = os.environ.get('OWL_CHANNEL')
-db_name = "deez_bot.db"
+user_errors = int(os.environ.get('USER_ERRORS'))
+bunker_channel = int(os.environ.get('BUNKER_CHANNEL'))
+owl_channel = int(os.environ.get('OWL_CHANNEL'))
+db_name = "DB/deez_bot.db"
 
-root_ids = inputs = list(os.environ.get("ROOT_IDS").strip().replace(" ", "").split(','))
+root_ids = inputs = { int(os.environ.get("ROOT_ID"))}
 
 output_songs = "Songs/"
 output_shazam = "Records/"

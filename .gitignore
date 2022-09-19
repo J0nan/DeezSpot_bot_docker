@@ -154,3 +154,5 @@ cython_debug/
 *.session
 *.ini
 *.json
+docker-compose-good.yml
+DB/deez_bot.db

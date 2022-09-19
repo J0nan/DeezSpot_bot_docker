@@ -5,12 +5,12 @@ from datetime import datetime
 
 version = 1.0
 bot_name = os.environ.get("BOT_NAME", "@")
-creator = "@Anonimia (bot) & J0nan (docker)"
+creator = "@Anonimia (bot) & J0n4n (docker)"
 donation = "https://www.paypal.com/paypalme/an0nimia"
 source_code_bot = "https://github.com/J0nan/DeezSpot_bot_docker"
 source_code_lib = "https://pypi.org/project/deezloader/"
 forum = os.environ.get("FORUM", "@")
-last_update = "14/09/2022"
+last_update = "19/09/2022"
 date_start = datetime.now()
 last_reset = datetime.strftime(date_start, "%d/%m/%Y %H:%M:%S")
 

@@ -1,9 +1,10 @@
 #!/usr/bin/python3
 
-from utils.utils import check_config_bot, show_menu
+from utils.utils import check_config_bot
+import os
 
 check_config_bot()
-mode_bot = show_menu()
+mode_bot = int(os.environ.get("MODE_BOT",2))
 
 from configs.set_configs import SetConfigs
 
