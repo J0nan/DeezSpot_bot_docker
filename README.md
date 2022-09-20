@@ -1,5 +1,4 @@
 # DeezSpot_bot
-- A new bot is avalaible here [DeezSpot_bot](https://t.me/DeezSpot_bot). ENJOY :)
 
 # Disclaimer
 
@@ -16,62 +15,73 @@
 	![Windows Support](https://img.shields.io/badge/Windows-Support-brightgreen.svg)
 
 # SET UP
+Docker Variables:
+- **MODE_BOT**: (default: 2)
+  - 1 -> Test Mode.
+  - 2 -> Cool mode.
+  - 3 -> Test Mode (No zip).
+  - 4 -> Cool Mode (No zip).
 
-## INSTALLATION
+- **WARNING_BANNING**: (default: 4) number of flooding messaging when to ban a user.
 
-Let create a own env
+- **USER_ERRORS**: (MANDATORY) Chat id where to send users errors.
 
-    pip install virtualenv
+- **BUNKER_CHANNEL**: (MANDATORY) Chat id to use as an archive
 
-To install it just type this command
+- **OWL_CHANNEL**: (MANDATORY) Chat id where to listen for announcements to the users
 
-    git clone https://github.com/An0nimia/DeezSpot_bot.git && cd DeezSpot_bot && virtualenv bot_env && source bot_env/bin/activate && pip3 install -r req.txt
+- **ROOT_ID**: (MANDATORY) User id to have admin access
 
-## Configurations
+- **METHOD_SAVE**: (default: 3) Method of the naming schema for the song name.
+  - 0 -> "{album} CD {discnum} TRACK {tracknum}"
+  - 1 -> "{songname} - {artist}"
+  - 2 -> "{songname} - {artist} [{isrc}]"
+  - 3 -> "{discnum}|{tracknum} - {songname} - {artist}"
 
-  ### bot_settings.py
+- **DOWNLOAD_DIR_MAX_SIZE**: (default: 6) Directory max size in GB.
 
-  Go and modify [bot_settings.py](https://github.com/An0nimia/DeezSpot_bot/blob/master/configs/bot_settings.py)
+- **PROGRESS_STATUS_RATE**: (default: 15) 
 
-  ![Image](https://github.com/An0nimia/DeezSpot_bot/blob/master/photos/screen_1.png)
+- **TIME_SLEEP**: (default: 8)
 
-  - Read the code comments
-  - If you don't know how to get chat id send messages to him [@JsonDumpBot](https://t.me/JsonDumpBot)
+- **SECONDS_LIMITS_ALBUM**: (default: 30000) In seconds
 
-  ### .deez_settings.ini
+- **SECONDS_LIMITS_TRACK**: (default: 7200) In seconds
+
+- **UPLOAD_MAX_SIZE_USER**: (default: 2) In GB
+
+- **MAX_SONGS_PER_PLAYLIST**: (default: 200) Maximum number of song in a playlist to be downloaded
+
+- **MAX_DOWNLOAD_USER**: (default: 3) Maximum parallel downloads per user
+
+- **BOT_NAME**: (MANDATORY) Username with the `@` of the bot.
+
+- **FORUM**: (default: @)
+
+- **EMAIL_DEE**: (MANDATORY) Email to log in on Deezer
+
+- **PWD_DEE**: (MANDATORY) Password to log in on Deezer
+
+- **EMAIL_SPO**: (MANDATORY) Email to log in on Spotify
+
+- **PWD_SPO**: (MANDATORY) Password to log in on Spotify
+
+- **BOT_TOKEN**: (MANDATORY) Telegram bot token
+
+- **API_ID**: (MANDATORY) Telegram api id
+
+- **API_HASH**: (MANDATORY) Telegram api hash
+
+- **ACRCLOUD_KEY**: for acrcloud key look at [acrcloud](https://docs.acrcloud.com/tutorials/recognize-music)
+
+- **ACRCLOUD_SECRET**: for acrcloud secret look at [acrcloud](https://docs.acrcloud.com/tutorials/recognize-music)
+
+- **ACRCLOUD_HOST**: for host look at [acrcloud](https://docs.acrcloud.com/tutorials/recognize-music)
 
 
-  Go and modify [.deez_settings.ini](https://github.com/An0nimia/DeezSpot_bot/blob/master/.deez_settings.ini)
+# Where to get some tokens
 
-  - mail, password, token(arl) are deezer credentials used for login
   - the pyrogram api_id & api_hash can be created [here](https://my.telegram.org/auth?to=apps)
   - for create a telegram bot look [here](https://t.me/BotFather)
   - for acrcloud key, secret, host look at [acrcloud](https://docs.acrcloud.com/tutorials/recognize-music)
-
-  ### .set_configs.py
-  
-  Go and modify [set_configs.py](https://github.com/An0nimia/DeezSpot_bot/blob/master/configs/set_configs.py)
-  
-  If you don't want to login with arl, which expire, log with normal credentials & delete line 35
-
-# START IT
-
-## First method
-
-```bash
-python3 deez_bot.py
-```
-
-## OR
-
-If you know how tmux works
-
-```bash
-tmux new -s deez_bot
-```
-
-then when you are inside just type
-
-```bash
-python3 deez_bot.py 1
-```
+  - If you don't know how to get chat id send messages to him [@JsonDumpBot](https://t.me/JsonDumpBot)
