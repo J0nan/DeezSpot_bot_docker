@@ -40,7 +40,7 @@ recursive_download = os.environ.get("RECURSIVE_DOWNLOAD", True)
 make_zip = os.environ.get("MAKE_ZIP", True)
 method_save = int(os.environ.get('METHOD_SAVE',3))
 is_thread = os.environ.get("IS_THREAD", True)
-download_dir_max_size = int(os.environ.get("DONLOAD_DIR_MAX_SIZE", 6)) #GB
+download_dir_max_size = int(os.environ.get("DOWNLOAD_DIR_MAX_SIZE", 6)) #GB
 progress_status_rate = int(os.environ.get("PROGRESS_STATUS_RATE", 15))
 
 supported_link = [
