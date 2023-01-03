@@ -1,5 +1,5 @@
 deezloader
-python-telegram-bot
+python-telegram-bot==13.12
 pyrogram
 tgcrypto
 python-acrcloud
