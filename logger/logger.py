@@ -14,4 +14,7 @@ class LoggerStream:
         if message.rstrip() != "":
             logger.info(message.rstrip())
 
+    def flush(self):
+        pass
+
 sys.stdout = LoggerStream()
