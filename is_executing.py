@@ -4,6 +4,9 @@ from os import popen
 from time import sleep
 from psutil import process_iter, AccessDenied
 
+import logging
+from logger.logger import logger
+
 interested = [
 	"pid", "name"
 ]
@@ -32,9 +35,9 @@ while True:
 	exist = bot_exist()
 
 	if exist:
-		print(f"THE BOT IS RUNNING")
+		logger.warn(f"THE BOT IS RUNNING")
 	else:
-		print(f"THE BOT IS NOT RUNNING")
+		logger.warn(f"THE BOT IS NOT RUNNING")
 
 	if not exist:
 		popen(cmd).read()

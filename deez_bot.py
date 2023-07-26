@@ -3,6 +3,9 @@
 from utils.utils import check_config_bot
 import os
 
+import logging
+from logger.logger import logger
+
 check_config_bot()
 mode_bot = int(os.environ.get("MODE_BOT",2))
 
@@ -852,7 +855,7 @@ def checking():
 			get_download_dir_size()
 		)
 
-		print(
+		logger.debug(
 			f"STATUS DOWNLOADS {SetConfigs.queues_started}/{SetConfigs.queues_finished} {dir_size}/{download_dir_max_size}"
 		)
 
@@ -880,7 +883,7 @@ check_thread.start()
 
 tg_user_start()
 
-print("\nEXITTING WAIT A FEW SECONDS :)")
+logger.info("\nEXITTING WAIT A FEW SECONDS :)")
 clear_download_dir()
 clear_recorded_dir()
 
