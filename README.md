@@ -60,6 +60,8 @@ Docker Variables:
 
 - **FORUM**: (default: @)
 
+- **ARL_TOKEN**: (MANDATORY) Deezer ARL token.
+
 - **EMAIL_DEE**: (MANDATORY) Email to log in on Deezer
 
 - **PWD_DEE**: (MANDATORY) Password to log in on Deezer
@@ -80,10 +82,28 @@ Docker Variables:
 
 - **ACRCLOUD_HOST**: for host look at [acrcloud](https://docs.acrcloud.com/tutorials/recognize-music)
 
-
 # Where to get some tokens
 
   - the pyrogram api_id & api_hash can be created [here](https://my.telegram.org/auth?to=apps)
   - for create a telegram bot look [here](https://t.me/BotFather)
   - for acrcloud key, secret, host look at [acrcloud](https://docs.acrcloud.com/tutorials/recognize-music)
   - If you don't know how to get chat id send messages to him [@JsonDumpBot](https://t.me/JsonDumpBot)
+
+To obtain your Deezer ARL cookie, you can follow these steps:
+
+- Firefox:
+
+1. Open Firefox and go to deezer.com.
+2. Log in to your account
+3. Click the three horizontal lines in the top right corner of the window to open the menu.
+4. Select Tools > Web Developer Tools.
+5. Click the Cookies tab.
+6. Search for the arl cookie and copy the value.
+
+- Chrome:
+
+1. Open Chrome and go to deezer.com.
+2. Log in to your account
+3. Click the lock icon in the address bar.
+4. Click Cookies.
+5. Search for the arl cookie and copy the value.

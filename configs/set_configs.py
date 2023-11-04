@@ -12,7 +12,7 @@ import os
 class SetConfigs:
 	queues_started, queues_finished = 0, 0
 
-	# __arl_token = os.environ.get("ARL_TOKEN")
+	__arl_token = os.environ.get("ARL_TOKEN")
 	__email_dee = os.environ.get("EMAIL_DEE")
 	__pwd_dee = os.environ.get("PWD_DEE")
 
@@ -45,7 +45,7 @@ class SetConfigs:
 		cls.tg_bot_id = cls.tg_bot_api.bot.name
 
 		cls.deez_api = DeeLogin(
-			# arl = cls.__arl_token,
+			arl = cls.__arl_token,
 			email = cls.__email_dee,
 			password = cls.__pwd_dee
 		)

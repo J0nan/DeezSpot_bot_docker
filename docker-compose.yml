@@ -23,6 +23,7 @@ services:
       MAX_DOWNLOAD_USER:
       BOT_NAME:
       FORUM:
+      ARL_TOKEN:
       EMAIL_DEE:
       PWD_DEE:
       EMAIL_SPO:
