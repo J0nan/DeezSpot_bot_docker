@@ -3,7 +3,7 @@ version: '3'
 services:
 
   deezspot_bot:
-    image: j0n4n/deezspot_bot
+    image: j0n4n/deezspot_bot_docker
     container_name: deezspot_bot
     environment:
       MODE_BOT: 
