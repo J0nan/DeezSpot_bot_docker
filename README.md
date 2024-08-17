@@ -107,3 +107,4 @@ To obtain your Deezer ARL cookie, you can follow these steps:
 3. Click the lock icon in the address bar.
 4. Click Cookies.
 5. Search for the arl cookie and copy the value.
+
