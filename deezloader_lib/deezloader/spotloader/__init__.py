@@ -40,9 +40,9 @@ class SpoLogin:
 		__session.conf.stored_credentials_file = librespot_credentials
 
 		if isfile(librespot_credentials):
-			__session = __session.stored_file().create()
-		else:
-			__session = __session.user_pass(email, pwd).create()
+			__session = __session.stored_file(librespot_credentials).create()
+		# else:
+		# 	__session = __session.user_pass(email, pwd).create()
 
 		Download_JOB(__session)
 
