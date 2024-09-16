@@ -156,3 +156,4 @@ cython_debug/
 *.json
 docker-compose-good.yml
 DB/deez_bot.db
+credentials/*

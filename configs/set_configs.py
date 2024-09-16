@@ -16,8 +16,8 @@ class SetConfigs:
 	__email_dee = os.environ.get("EMAIL_DEE")
 	__pwd_dee = os.environ.get("PWD_DEE")
 
-	__email_spo = os.environ.get("EMAIL_SPO")
-	__pwd_spo = os.environ.get("PWD_SPO")
+	# __email_spo = os.environ.get("EMAIL_SPO")
+	# __pwd_spo = os.environ.get("PWD_SPO")
 
 	__bot_token = os.environ.get("BOT_TOKEN")
 
@@ -50,8 +50,7 @@ class SetConfigs:
 			password = cls.__pwd_dee
 		)
 
-		if(cls.__email_spo):
-			cls.spot_api = SpoLogin(cls.__email_spo, cls.__pwd_spo)
+		cls.spot_api = SpoLogin("null", "null")
 
 		if(cls.__acrcloud_key):
 			cls.acrcloud_api = ACRcloud(cls.__acrcloud_config)

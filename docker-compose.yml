@@ -1,5 +1,3 @@
-version: '3'
-
 services:
 
   deezspot_bot:
@@ -26,8 +24,6 @@ services:
       ARL_TOKEN:
       EMAIL_DEE:
       PWD_DEE:
-      EMAIL_SPO:
-      PWD_SPO:
       BOT_TOKEN:
       ACRCLOUD_KEY: 
       ACRCLOUD_SECRET: 
@@ -35,4 +31,5 @@ services:
       API_ID:
       API_HASH:
     volumes:
-      -./DB:/app/DB
+      - ./DB:/app/DB
+      - ./credentials:/app/credentials

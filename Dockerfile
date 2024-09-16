@@ -13,6 +13,6 @@ RUN pip install --upgrade pip
 RUN pip install -r req.txt
 
 
-VOLUME [ "/app/DB" ]
+VOLUME [ "/app/DB", "/app/credentials"]
 
 CMD [ "python", "/app/deez_bot.py"]
