@@ -2,6 +2,10 @@
 
 <https://hub.docker.com/r/j0n4n/deezspot_bot_docker>
 
+# ⚠⚠⚠ IMPORTANT ⚠⚠⚠
+
+Last update added changes to the database, so the deez_bot.db that its created, must be deleted.
+
 # Disclaimer
 
 - I am not responsible for the usage of this program by other people.
@@ -34,7 +38,7 @@ Docker Variables:
 
 - **ROOT_ID**: (MANDATORY) User id to have admin access
 
-- **METHOD_SAVE**: (default: 3) Method of the naming schema for the song name.
+- **METHOD_SAVE**: (default: 3) Method of the naming schema for the song name. Each user can change it using the /setting command. 
   - 0 -> "{album} CD {discnum} TRACK {tracknum}"
   - 1 -> "{songname} - {artist}"
   - 2 -> "{songname} - {artist} [{isrc}]"
@@ -66,9 +70,9 @@ Docker Variables:
 
 - **PWD_DEE**: (MANDATORY) Password to log in on Deezer
 
-<!-- - **EMAIL_SPO**: (MANDATORY) Email to log in on Spotify
+- **EMAIL_SPO**: (MANDATORY) Email to log in on Spotify
 
-- **PWD_SPO**: (MANDATORY) Password to log in on Spotify -->
+- **PWD_SPO**: (MANDATORY) Password to log in on Spotify
 
 - **BOT_TOKEN**: (MANDATORY) Telegram bot token
 
@@ -82,7 +86,7 @@ Docker Variables:
 
 - **ACRCLOUD_HOST**: for host look at [acrcloud](https://docs.acrcloud.com/tutorials/recognize-music)
 
-# How to set Spotify credentials
+<!-- # How to set Spotify credentials
 
 1. Download the latest version https://github.com/dspearson/librespot-auth from the release tab
 2. Launch using:
@@ -95,7 +99,7 @@ Docker Variables:
    1. Replace the string `"auth_type": 1` with `"type":"AUTHENTICATION_STORED_SPOTIFY_CREDENTIALS"`
    2. Replace the string `"auth_data"` with `"credentials"`
 7. Then map the file to container in `/app/credentials/credentials.json`
-8. Run the container, it should login with Deezer and Spotify
+8. Run the container, it should login with Deezer and Spotify -->
 
 # Where to get some tokens
 
@@ -122,4 +126,3 @@ To obtain your Deezer ARL cookie, you can follow these steps:
 3. Click the lock icon in the address bar.
 4. Click Cookies.
 5. Search for the arl cookie and copy the value.
-

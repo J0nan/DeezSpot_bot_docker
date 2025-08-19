@@ -1,6 +1,10 @@
+./deezloader_lib
 python-telegram-bot==13.15
 pyrogram
 tgcrypto
 python-acrcloud
 libtmux
 matplotlib
+git+https://github.com/kokarare1212/librespot-python
+ffmpeg
+

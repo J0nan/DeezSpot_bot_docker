@@ -31,7 +31,8 @@ def initialize_db():
 		quality VARCHAR(5) NOT NULL, \
 		date DATE DEFAULT (datetime('now', 'localtime')), \
 		chat_id INT NOT NULL, \
-		UNIQUE(link, quality))"
+		method_save INT NOT NULL, \
+		UNIQUE(link, quality, method_save))"
 	)
 
 	query_create_table_users_settings = (
@@ -44,6 +45,7 @@ def initialize_db():
 		lang VARCHAR(5) NOT NULL, \
 		date DATE DEFAULT (datetime('now', 'localtime')), \
 		source VARCHAR(8) NOT NULL, \
+		method_save INT NOT NULL, \
 		search_method VARCHAR(15) NOT NULL)"
 	)
 
@@ -62,16 +64,17 @@ def initialize_db():
 	con.commit()
 	con.close()
 
-def write_dwsongs(link, file_id, quality, chat_id):
+def write_dwsongs(link, file_id, quality, chat_id, method_save):
 	con = db_connect(db_name)
 	cur = con.cursor()
-	query_insert_dwsongs = "INSERT INTO dwsongs(link, file_id, quality, chat_id) VALUES (?, ?, ?, ?)"
+	query_insert_dwsongs = "INSERT INTO dwsongs(link, file_id, quality, chat_id, method_save) VALUES (?, ?, ?, ?, ?)"
 
 	cur.execute(
 		query_insert_dwsongs,
 		(
 			link, file_id,
-			quality, chat_id
+			quality, chat_id,
+			method_save
 		)
 	)
 
@@ -93,15 +96,15 @@ def delete_dwsongs(file_id):
 	con.commit()
 	con.close()
 
-def select_dwsongs(link, quality):
+def select_dwsongs(link, quality, method_save):
 	con = db_connect(db_name)
 	cur = con.cursor()
-	query_select_dwsongs = "SELECT file_id FROM dwsongs WHERE link = ? AND quality = ?"
+	query_select_dwsongs = "SELECT file_id FROM dwsongs WHERE link = ? AND quality = ? AND method_save = ?"
 
 	cur.execute(
 		query_select_dwsongs,
 		(
-			link, quality
+			link, quality, method_save
 		)
 	)
 

@@ -6,7 +6,7 @@ from configs.bot_settings import root_ids, warning_for_banning
 from configs.customs import (
 	banning_msg1, banning_msg2,
 	version, bot_name, creator,
-	forum, last_update,
+	forum, active_since,
 	last_reset, date_start
 )
 
@@ -34,6 +34,7 @@ def users_set_cache(chat_id, users_data):
 		lang = match[3]
 		source = match[4]
 		search_method = match[5]
+		method_save = match[6] 
 
 		users_data[chat_id] = {
 			"quality": quality,
@@ -42,6 +43,7 @@ def users_set_cache(chat_id, users_data):
 			"lang": lang,
 			"source": source,
 			"search_method": search_method,
+			"method_save": method_save, 
 			"last_message": None,
 			"messages_sent": 0,
 			"times": 0,
@@ -128,7 +130,7 @@ def get_info():
 
 	info_msg = (
 		f"🔺 Version: {version}\
-		\n📅 Last Update: {last_update}\
+		\n📅 Active since: {active_since}\
 		\n🔻 Name: {bot_name}\
 		\n✒️ Creator: {creator}\
 		\n📅 Last reset: {last_reset}\

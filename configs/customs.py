@@ -3,14 +3,14 @@
 import os
 from datetime import datetime
 
-version = 1.0
+version = 2.0
 bot_name = os.environ.get("BOT_NAME", "@")
-creator = "@Anonimia (bot) & J0n4n (docker)"
-donation = "https://www.paypal.com/paypalme/an0nimia"
+creator = "@ReddingtonRedsLeaks & J0n4n (docker)"
+donation = "https://www.google.com"
 source_code_bot = "https://github.com/J0nan/DeezSpot_bot_docker"
 source_code_lib = "https://pypi.org/project/deezloader/"
 forum = os.environ.get("FORUM", "@")
-last_update = "19/09/2022"
+active_since = "20/08/2025"
 date_start = datetime.now()
 last_reset = datetime.strftime(date_start, "%d/%m/%Y %H:%M:%S")
 
@@ -63,13 +63,24 @@ what_can_I_do = (
 	\n5): I am too lazy to continue, found out by yourself :)"
 )
 
+#you can add whatever you like here, but make sure to edit both deez_bot/utils/utils.py line 99
+save_methods = (
+	"File name templates:\n\n"
+	"0: {album} CD {discnum} TRACK {tracknum}\n"
+	"1: {artist} - {music}\n"
+	"2: {artist} - {music} [{isrc}]\n"
+	"3: {discnumber}|{tracknumber} - {artist} - {music}"
+    #"4: {tracknumber}. {music}" example
+)
+
 bot_settings_config = [
 	("Quality", "quality", "MP3_320"),
 	("Send zips", "zips", True),
 	("Send tracks", "tracks", True),
 	("Language", "lang", "en"),
-	("Download Source", "source", "SpoDee"),
-	("Search Method", "search_method", "results_audio_article")
+	("Download Source", "source", "Dee"),
+	("Search Method", "search_method", "results_audio_article"),
+	("Save Method", "method_save", "1")
 ]
 
 search_methods = [

@@ -40,6 +40,33 @@ __qualities_spo = list(
 	spo_qualities.keys()
 )
 
+def check_config_file(config):
+	if not "arl" in config['deez_login']:
+		print("Something went wrong with the login token in the configuration file")
+		exit()
+
+	if (
+		not "api_id" in config['pyrogram']
+	) or (
+		not "api_hash" in config['pyrogram']
+	):
+		print("Something went wrong with pyrogram in the configuration file")
+		exit()
+
+	if not "bot_token" in config['telegram']:
+		print("Something went wrong with the telegram token in the configuration file")
+		exit()
+
+	if (
+		not "key" in config['acrcloud']
+	) or (
+		not "secret" in config['acrcloud']
+	) or (
+		not "host" in config['acrcloud']
+	):
+		print("Something went wrong with acrcloud in the configuration file")
+		exit()
+
 def get_netloc(link):
 	netloc = urlparse(link).netloc
 
@@ -84,15 +111,15 @@ def set_path(song_metadata, song_quality, file_format, method_save):
 
 	elif method_save == 2:
 		isrc = song_metadata['isrc']
-		song_name = f"{music} - {artist} [{isrc}]"
+		song_name = f"{artist} - {music}"
 
 	elif method_save == 3:
 		discnum = song_metadata['discnum']
 		tracknum = song_metadata['tracknum']
-		song_name = f"{discnum}|{tracknum} - {music} - {artist}"
+		song_name = f"{tracknum} - {artist} - {music}"
 
 	n_tronc = __get_tronc(song_name)
-	song_path = f"{song_name[:n_tronc]} ({song_quality}){file_format}"
+	song_path = f"{song_name[:n_tronc]}{file_format}"
 
 	return song_path
 
@@ -182,7 +209,7 @@ def create_log_dir():
 	if not isdir(logs_path):
 		mkdir(logs_path)
 
-def logging_bot() -> list:
+def logging_bot() -> list[Logger]:
 	formatter = Formatter(
 		"%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 	)

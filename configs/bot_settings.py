@@ -5,12 +5,6 @@ from logging import ERROR, INFO
 from utils.converter_bytes import convert_bytes_to
 from telegram.constants import MAX_FILESIZE_DOWNLOAD
 
-def get_env(name, message, cast=str):
-	if name in os.environ:
-		return os.environ[name].strip()
-	else:
-		return message
-
 logs_path = "logs/"
 log_downloads = f"{logs_path}downloads.log"
 log_uploads = f"{logs_path}uploads.log"
@@ -41,11 +35,11 @@ make_zip = os.environ.get("MAKE_ZIP", True)
 method_save = int(os.environ.get('METHOD_SAVE',3))
 is_thread = os.environ.get("IS_THREAD", True)
 download_dir_max_size = int(os.environ.get("DOWNLOAD_DIR_MAX_SIZE", 6)) #GB
-progress_status_rate = int(os.environ.get("PROGRESS_STATUS_RATE", 15))
+progress_status_rate = int(os.environ.get("PROGRESS_STATUS_RATE", 150))
 
 supported_link = [
 	"www.deezer.com", "open.spotify.com",
-	"deezer.com", "spotify.com", "deezer.page.link"
+	"deezer.com", "spotify.com", "deezer.page.link", "spotify.link"
 ]
 
 time_sleep = int(os.environ.get("TIME_SLEEP", 8))

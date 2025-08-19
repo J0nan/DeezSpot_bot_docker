@@ -4,15 +4,12 @@ from os import popen
 from time import sleep
 from psutil import process_iter, AccessDenied
 
-import logging
-from logger.logger import logger
-
 interested = [
 	"pid", "name"
 ]
 
 script = "deez_bot.py"
-cmd = f"screen -S Deez_Bot_Anonimia python3 {script}"
+cmd = f"screen -S Deez_Bot_Reddington python3 {script}"
 
 def bot_exist():
 	exist = False
@@ -35,9 +32,9 @@ while True:
 	exist = bot_exist()
 
 	if exist:
-		logger.warn(f"THE BOT IS RUNNING")
+		print(f"THE BOT IS RUNNING")
 	else:
-		logger.warn(f"THE BOT IS NOT RUNNING")
+		print(f"THE BOT IS NOT RUNNING")
 
 	if not exist:
 		popen(cmd).read()
