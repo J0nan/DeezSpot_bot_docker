@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-from configs.bot_settings import db_name
+from configs.bot_settings import db_name, method_save
 from sqlite3 import connect as db_connect
 from configs.customs import bot_settings_config
 
@@ -64,7 +64,7 @@ def initialize_db():
 	con.commit()
 	con.close()
 
-def write_dwsongs(link, file_id, quality, chat_id, method_save):
+def write_dwsongs(link, file_id, quality, chat_id, method_save=method_save):
 	con = db_connect(db_name)
 	cur = con.cursor()
 	query_insert_dwsongs = "INSERT INTO dwsongs(link, file_id, quality, chat_id, method_save) VALUES (?, ?, ?, ?, ?)"
@@ -96,7 +96,7 @@ def delete_dwsongs(file_id):
 	con.commit()
 	con.close()
 
-def select_dwsongs(link, quality, method_save):
+def select_dwsongs(link, quality, method_save=method_save):
 	con = db_connect(db_name)
 	cur = con.cursor()
 	query_select_dwsongs = "SELECT file_id FROM dwsongs WHERE link = ? AND quality = ? AND method_save = ?"
