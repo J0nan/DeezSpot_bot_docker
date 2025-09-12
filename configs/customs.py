@@ -21,7 +21,7 @@ banning_msg1 = "WE ARE DETECTING A FLOOD OF MESSAGES PLEASE DON'T SEND TOO MUCH 
 banning_msg2 = "CONGRATULATIONS YOU ARE BANNED =)"
 
 album_too_long = "DON'T YOU GET BORE LISTENING AN ALBUM SO LONG :)))"
-track_too_long = "IS THIS TRACK FOR A SATAN CELEBRATION? :)))"
+track_too_long = "DON'T YOU GET BORE LISTENING A TRACK SO LONG :)))"
 
 shazam_function_msg = "You found a fantastic function, if you send a vocal message or an audio, you will see :)"
 max_download_user_msg = "You have reached, max download per time avalaible, wait or kill someone :)"
@@ -43,27 +43,22 @@ startup_text = (
 			3): The source code can be found here:
 					a): [DeezSpot_bot]({source_code_bot})
 					b): [Main lib]({source_code_lib})
-			5): For the artists songs I don't think would get poor if someone doesn't pay for their content.
-			6): ENJOY THE MUSIC ART🔥
+			5): ENJOY THE MUSIC ART🔥
 	"""
 )
 
 reasons_text = (
-	"WHY I MADE THIS BOT?\
-	\n1): This was a nice challenge for me as a little dev\
-	\n2): No all of us have the possibility to pay for music content, so I did this to give to everybody for free the chance to download songs"
+	"WHY I MADE THIS BOT?"
 )
 
 what_can_I_do = (
 	"Glad you asked, I can do:\
 	\n1): Download songs in three different qualities (/quality)\
-	\n2): Shazam engine like to download songs around you\
-	\n3): Zip sending\
-	\n4): I hope enough performing JAJAJAJAJAJ\
-	\n5): I am too lazy to continue, found out by yourself :)"
+	\n2): Zip sending\
+	\n3): I hope enough performing JAJAJAJAJAJ\
+	\n4): I am too lazy to continue, found out by yourself :)"
 )
 
-#you can add whatever you like here, but make sure to edit both deez_bot/utils/utils.py line 99
 save_methods = (
 	"File name templates:\n\n"
 	"0: {album} CD {discnum} TRACK {tracknum}\n"
