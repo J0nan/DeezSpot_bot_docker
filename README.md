@@ -70,9 +70,9 @@ Docker Variables:
 
 - **PWD_DEE**: (MANDATORY) Password to log in on Deezer
 
-- **EMAIL_SPO**: (MANDATORY) Email to log in on Spotify
+<!-- - **EMAIL_SPO**: (MANDATORY) Email to log in on Spotify
 
-- **PWD_SPO**: (MANDATORY) Password to log in on Spotify
+- **PWD_SPO**: (MANDATORY) Password to log in on Spotify -->
 
 - **BOT_TOKEN**: (MANDATORY) Telegram bot token
 
@@ -86,7 +86,7 @@ Docker Variables:
 
 - **ACRCLOUD_HOST**: for host look at [acrcloud](https://docs.acrcloud.com/tutorials/recognize-music)
 
-<!-- # How to set Spotify credentials
+# How to set Spotify credentials
 
 1. Download the latest version https://github.com/dspearson/librespot-auth from the release tab
 2. Launch using:
@@ -99,7 +99,7 @@ Docker Variables:
    1. Replace the string `"auth_type": 1` with `"type":"AUTHENTICATION_STORED_SPOTIFY_CREDENTIALS"`
    2. Replace the string `"auth_data"` with `"credentials"`
 7. Then map the file to container in `/app/credentials/credentials.json`
-8. Run the container, it should login with Deezer and Spotify -->
+8. Run the container, it should login with Deezer and Spotify
 
 # Where to get some tokens
 

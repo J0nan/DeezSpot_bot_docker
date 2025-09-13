@@ -33,3 +33,4 @@ services:
     volumes:
       - ./DB:/app/DB
       - ./logs:/app/logs
+      - ./credentials:/app/credentials

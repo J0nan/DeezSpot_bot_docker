@@ -1,8 +1,8 @@
 #!/usr/bin/python3
 
+import os
 from os.path import isfile
 from argparse import ArgumentParser
-from configparser import ConfigParser
 from deezloader.deezloader import DeeLogin
 from deezloader.spotloader import SpoLogin
 from deezloader.libutils.others_settings import sources, method_saves
@@ -43,13 +43,6 @@ def download_link(
 
 parser = ArgumentParser(description = "Deezloader downloader")
 
-if not isfile(settings_file):
-	parser.add_argument(
-		"deez_settings",
-		default = settings_file,
-		help = "Path for the deez_settings file"
-	)
-
 parser.add_argument(
 	"-so", "--source",
 	choices = sources,
@@ -80,21 +73,14 @@ parser.add_argument(
 
 args = parser.parse_known_args()[0]
 
-config = ConfigParser()
-
-if not isfile(settings_file):
-	config.read(args.deez_settings)
-else:
-	config.read(settings_file)
-
 try:
-	dee_token = config['deez_login']['arl']
-	dee_email = config['deez_login']['mail']
-	dee_pwd = config['deez_login']['pwd']
-	spo_email = config['spot_login']['mail']
-	spo_pwd = config['spot_login']['pwd']
+	dee_token = os.environ.get("ARL_TOKEN")
+	dee_email = os.environ.get("EMAIL_DEE")
+	dee_pwd = os.environ.get("PWD_DEE")
+	spo_email = os.environ.get("EMAIL_SPO")
+	spo_pwd = os.environ.get("PWD_SPO")
 except KeyError:
-	print("Something went wrong with configuration file")
+	print("Something went wrong with configuration")
 	exit()
 
 source = args.source

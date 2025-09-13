@@ -7,11 +7,10 @@ WORKDIR /app
 
 COPY . /app
 
-RUN pip install ./deezloader_lib
-
 RUN pip install --upgrade pip
 RUN pip install -r req.txt
+RUN pip install ./deezloader_lib
 
-VOLUME [ "/app/DB", "/app/logs"]
+VOLUME [ "/app/DB", "/app/logs", "/app/credentials"]
 
 CMD [ "python", "/app/deez_bot.py"]

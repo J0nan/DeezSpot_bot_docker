@@ -25,7 +25,7 @@ setup(
 	install_requires = [
 		"mutagen", "pycryptodome", "requests",
 		"spotipy", "tqdm", "fastapi",
-		"uvicorn[standard]", "librespot"
+		"uvicorn[standard]"
 	],
 
 	scripts = [
