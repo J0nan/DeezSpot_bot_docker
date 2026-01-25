@@ -45,45 +45,27 @@ Docker Variables:
   - 3 -> "{discnum}|{tracknum} - {songname} - {artist}"
 
 - **DOWNLOAD_DIR_MAX_SIZE**: (default: 6) Directory max size in GB.
-
 - **PROGRESS_STATUS_RATE**: (default: 15) 
-
 - **TIME_SLEEP**: (default: 8)
-
 - **SECONDS_LIMITS_ALBUM**: (default: 30000) In seconds
-
 - **SECONDS_LIMITS_TRACK**: (default: 7200) In seconds
-
 - **UPLOAD_MAX_SIZE_USER**: (default: 2) In GB
-
 - **MAX_SONGS_PER_PLAYLIST**: (default: 200) Maximum number of song in a playlist to be downloaded
-
 - **MAX_DOWNLOAD_USER**: (default: 3) Maximum parallel downloads per user
-
 - **BOT_NAME**: (MANDATORY) Username with the `@` of the bot.
-
 - **FORUM**: (default: @)
-
 - **ARL_TOKEN**: (MANDATORY) Deezer ARL token.
-
 - **EMAIL_DEE**: (MANDATORY) Email to log in on Deezer
-
 - **PWD_DEE**: (MANDATORY) Password to log in on Deezer
-
+- **SPOTIFY_CLIENT_ID**: (default: `c6b23f1e91f84b6a9361de16aba0ae17` this is the one included in deezloader): can be created in <https://developer.spotify.com/dashboard>
+- **SPOTIFY_CLIENT_SECRET**: (default: `237e355acaa24636abc79f1a089e6204` this is the one included in deezloader): can be created in <https://developer.spotify.com/dashboard>
 <!-- - **EMAIL_SPO**: (MANDATORY) Email to log in on Spotify
-
 - **PWD_SPO**: (MANDATORY) Password to log in on Spotify -->
-
 - **BOT_TOKEN**: (MANDATORY) Telegram bot token
-
 - **API_ID**: (MANDATORY) Telegram api id
-
 - **API_HASH**: (MANDATORY) Telegram api hash
-
 - **ACRCLOUD_KEY**: for acrcloud key look at [acrcloud](https://docs.acrcloud.com/tutorials/recognize-music)
-
 - **ACRCLOUD_SECRET**: for acrcloud secret look at [acrcloud](https://docs.acrcloud.com/tutorials/recognize-music)
-
 - **ACRCLOUD_HOST**: for host look at [acrcloud](https://docs.acrcloud.com/tutorials/recognize-music)
 
 # How to set Spotify credentials

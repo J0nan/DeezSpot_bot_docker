@@ -25,9 +25,11 @@ services:
       - EMAIL_DEE=
       - PWD_DEE=
       - BOT_TOKEN=
-      - ACRCLOUD_KEY:=
-      - ACRCLOUD_SECRET:=
-      - ACRCLOUD_HOST:=
+      - SPOTIFY_CLIENT_ID=
+      - SPOTIFY_CLIENT_SECRET=
+      - ACRCLOUD_KEY=
+      - ACRCLOUD_SECRET=
+      - ACRCLOUD_HOST=
       - API_ID=
       - API_HASH=
     volumes:

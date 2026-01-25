@@ -11,6 +11,10 @@ log_uploads = f"{logs_path}uploads.log"
 log_telegram = f"{logs_path}telegram.log"
 log_links = f"{logs_path}links.log"
 
+spotify_client_id = str(os.environ.get("SPOTIFY_CLIENT_ID", "c6b23f1e91f84b6a9361de16aba0ae17"))
+spotify_client_secret = str(os.environ.get("SPOTIFY_CLIENT_SECRET", "237e355acaa24636abc79f1a089e6204"))
+spotify_cache_file = os.environ.get("SPOTIFY_CACHE_FILE", ".cache_spoty_token.json")
+
 logger_names = [
 	("telegram.ext.dispatcher", ERROR, log_telegram),
 	("uploads", INFO, log_uploads),

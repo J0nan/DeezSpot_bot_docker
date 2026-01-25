@@ -6,9 +6,11 @@ from spotipy.exceptions import SpotifyException
 from spotipy.cache_handler import CacheFileHandler
 from spotipy.oauth2 import SpotifyClientCredentials
 
-spotify_client_id = "c6b23f1e91f84b6a9361de16aba0ae17"
-spotify_client_secret = "237e355acaa24636abc79f1a089e6204"
-spotify_cache_file = ".cache_spoty_token.json"
+from configs.bot_settings import (
+	spotify_client_id,
+	spotify_client_secret,
+	spotify_cache_file
+)
 
 class Spo:
 	__error_codes = [404, 400]
