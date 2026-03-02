@@ -2,10 +2,6 @@
 
 <https://hub.docker.com/r/j0n4n/deezspot_bot_docker>
 
-# ⚠⚠⚠ IMPORTANT ⚠⚠⚠
-
-Last update added changes to the database, so the deez_bot.db that its created, must be deleted.
-
 # Disclaimer
 
 - I am not responsible for the usage of this program by other people.

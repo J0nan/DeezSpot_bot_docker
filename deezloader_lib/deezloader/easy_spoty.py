@@ -6,11 +6,19 @@ from spotipy.exceptions import SpotifyException
 from spotipy.cache_handler import CacheFileHandler
 from spotipy.oauth2 import SpotifyClientCredentials
 
-from configs.bot_settings import (
-	spotify_client_id,
-	spotify_client_secret,
-	spotify_cache_file
-)
+try:
+    # Prefer project config when running inside the bot
+    from configs.bot_settings import (
+        spotify_client_id,
+        spotify_client_secret,
+        spotify_cache_file
+    )
+except Exception:
+    # Fallback for package/CLI usage
+    import os
+    spotify_client_id = os.environ.get("SPOTIFY_CLIENT_ID", "c6b23f1e91f84b6a9361de16aba0ae17")
+    spotify_client_secret = os.environ.get("SPOTIFY_CLIENT_SECRET", "237e355acaa24636abc79f1a089e6204")
+    spotify_cache_file = os.environ.get("SPOTIFY_CACHE_FILE", ".cache-spotipy")
 
 class Spo:
 	__error_codes = [404, 400]
