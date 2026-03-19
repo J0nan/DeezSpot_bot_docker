@@ -3,6 +3,7 @@
 from utils.utils import check_config_bot
 import os
 
+print("Starting bot...")
 check_config_bot()
 mode_bot = int(os.environ.get("MODE_BOT",2))
 
