@@ -78,6 +78,36 @@ class Spo:
 			if error.http_status in cls.__error_codes:
 				raise InvalidLink(ids)
 
+		if 'tracks' not in playlist_json:
+			import requests
+			import re
+			import json
+			url = f"https://open.spotify.com/embed/playlist/{ids}"
+			try:
+				headers = {'User-Agent': 'Mozilla/5.0'}
+				html = requests.get(url, headers=headers, timeout=10).text
+				match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html)
+				items = []
+				if match:
+					embed_data = json.loads(match.group(1))
+					trackList = embed_data['props']['pageProps']['state']['data']['entity']['trackList']
+					for t in trackList:
+						uri = t.get('uri', '')
+						t_id = uri.split(':')[-1] if ':' in uri else uri
+						name = t.get('title', 'Unknown')
+						items.append({
+							'added_at': 'Unknown',
+							'track': {
+								'name': name,
+								'external_urls': {
+									'spotify': f"https://open.spotify.com/track/{t_id}"
+								}
+							}
+						})
+				playlist_json['tracks'] = {'items': items, 'next': None}
+			except Exception:
+				playlist_json['tracks'] = {'items': [], 'next': None}
+
 		tracks = playlist_json['tracks']
 		cls.__lazy(tracks)
 
