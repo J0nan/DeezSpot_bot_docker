@@ -249,7 +249,7 @@ def handle_callback_queries(update: Update, context):
 		if source == "SpoDee":
 			c_user_data['source'] = "Dee"
 		else:
-			c_user_data['source'] = "SpoDee"
+			c_user_data['source'] = "Dee"
 
 		c_keyboard = create_keyboard_settings(c_user_data)
 		user_setting_save_db(chat_id, c_user_data)
