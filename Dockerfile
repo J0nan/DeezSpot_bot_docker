@@ -1,18 +1,16 @@
-FROM python:slim
+FROM python:3.10
 
 RUN apt-get -y update
-RUN apt-get -y upgrade
-RUN apt-get install -y ffmpeg gcc
+RUN apt-get install -y ffmpeg git
 
 WORKDIR /app
 
-COPY req.txt req.txt
+COPY . /app
 
 RUN pip install --upgrade pip
 RUN pip install -r req.txt
+RUN pip install ./deezloader_lib
 
-COPY . /app
-
-VOLUME [ "/app/DB" ]
+VOLUME [ "/app/DB", "/app/logs", "/app/credentials"]
 
 CMD [ "python", "/app/deez_bot.py"]

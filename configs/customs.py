@@ -3,14 +3,14 @@
 import os
 from datetime import datetime
 
-version = 1.0
+version = 2.0
 bot_name = os.environ.get("BOT_NAME", "@")
-creator = "@Anonimia (bot) & J0n4n (docker)"
-donation = "https://www.paypal.com/paypalme/an0nimia"
+creator = "@ReddingtonRedsLeaks & J0n4n (docker)"
+donation = "https://www.google.com"
 source_code_bot = "https://github.com/J0nan/DeezSpot_bot_docker"
 source_code_lib = "https://pypi.org/project/deezloader/"
 forum = os.environ.get("FORUM", "@")
-last_update = "19/09/2022"
+active_since = "20/08/2025"
 date_start = datetime.now()
 last_reset = datetime.strftime(date_start, "%d/%m/%Y %H:%M:%S")
 
@@ -21,7 +21,7 @@ banning_msg1 = "WE ARE DETECTING A FLOOD OF MESSAGES PLEASE DON'T SEND TOO MUCH 
 banning_msg2 = "CONGRATULATIONS YOU ARE BANNED =)"
 
 album_too_long = "DON'T YOU GET BORE LISTENING AN ALBUM SO LONG :)))"
-track_too_long = "IS THIS TRACK FOR A SATAN CELEBRATION? :)))"
+track_too_long = "DON'T YOU GET BORE LISTENING A TRACK SO LONG :)))"
 
 shazam_function_msg = "You found a fantastic function, if you send a vocal message or an audio, you will see :)"
 max_download_user_msg = "You have reached, max download per time avalaible, wait or kill someone :)"
@@ -43,24 +43,29 @@ startup_text = (
 			3): The source code can be found here:
 					a): [DeezSpot_bot]({source_code_bot})
 					b): [Main lib]({source_code_lib})
-			5): For the artists songs I don't think would get poor if someone doesn't pay for their content.
-			6): ENJOY THE MUSIC ART🔥
+			5): ENJOY THE MUSIC ART🔥
 	"""
 )
 
 reasons_text = (
-	"WHY I MADE THIS BOT?\
-	\n1): This was a nice challenge for me as a little dev\
-	\n2): No all of us have the possibility to pay for music content, so I did this to give to everybody for free the chance to download songs"
+	"WHY I MADE THIS BOT?"
 )
 
 what_can_I_do = (
 	"Glad you asked, I can do:\
 	\n1): Download songs in three different qualities (/quality)\
-	\n2): Shazam engine like to download songs around you\
-	\n3): Zip sending\
-	\n4): I hope enough performing JAJAJAJAJAJ\
-	\n5): I am too lazy to continue, found out by yourself :)"
+	\n2): Zip sending\
+	\n3): I hope enough performing JAJAJAJAJAJ\
+	\n4): I am too lazy to continue, found out by yourself :)"
+)
+
+save_methods = (
+	"File name templates:\n\n"
+	"0: {album} CD {discnum} TRACK {tracknum}\n"
+	"1: {artist} - {music}\n"
+	"2: {artist} - {music} [{isrc}]\n"
+	"3: {discnumber}|{tracknumber} - {artist} - {music}"
+    #"4: {tracknumber}. {music}" example
 )
 
 bot_settings_config = [
@@ -68,8 +73,9 @@ bot_settings_config = [
 	("Send zips", "zips", True),
 	("Send tracks", "tracks", True),
 	("Language", "lang", "en"),
-	("Download Source", "source", "SpoDee"),
-	("Search Method", "search_method", "results_audio_article")
+	("Download Source", "source", "Dee"),
+	("Search Method", "search_method", "results_audio_article"),
+	("Save Method", "method_save", "1")
 ]
 
 search_methods = [

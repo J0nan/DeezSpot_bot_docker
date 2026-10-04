@@ -8,11 +8,10 @@ from deezloader.spotloader import SpoLogin
 from .bot_settings import user_session
 import os
 
-
 class SetConfigs:
 	queues_started, queues_finished = 0, 0
 
-	# __arl_token = os.environ.get("ARL_TOKEN")
+	__arl_token = os.environ.get("ARL_TOKEN")
 	__email_dee = os.environ.get("EMAIL_DEE")
 	__pwd_dee = os.environ.get("PWD_DEE")
 
@@ -45,15 +44,16 @@ class SetConfigs:
 		cls.tg_bot_id = cls.tg_bot_api.bot.name
 
 		cls.deez_api = DeeLogin(
-			# arl = cls.__arl_token,
+			arl = cls.__arl_token,
 			email = cls.__email_dee,
 			password = cls.__pwd_dee
 		)
 
-		if(cls.__email_spo):
-			cls.spot_api = SpoLogin(cls.__email_spo, cls.__pwd_spo)
+		cls.spot_api = SpoLogin(cls.__email_spo, cls.__pwd_spo)
 
-		if(cls.__acrcloud_key):
+		cls.acrcloud_api = None
+
+		if cls.__acrcloud_host:
 			cls.acrcloud_api = ACRcloud(cls.__acrcloud_config)
 
 		cls.tg_user_api = Client(user_session, api_id=cls.__api_id, api_hash=cls.__api_hash, bot_token=cls.__bot_token)

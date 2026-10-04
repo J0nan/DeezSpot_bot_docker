@@ -1,37 +1,38 @@
-version: '3'
-
 services:
 
   deezspot_bot:
-    image: j0n4n/deezspot_bot
+    image: j0n4n/deezspot_bot_docker
     container_name: deezspot_bot
     environment:
-      MODE_BOT: 
-      WARNING_BANNING:
-      USER_ERRORS: 
-      BUNKER_CHANNEL:
-      OWL_CHANNEL: 
-      ROOT_ID:
-      METHOD_SAVE:
-      DOWNLOAD_DIR_MAX_SIZE:
-      PROGRESS_STATUS_RATE:
-      TIME_SLEEP:
-      SECONDS_LIMITS_ALBUM:
-      SECONDS_LIMITS_TRACK:
-      UPLOAD_MAX_SIZE_USER:
-      MAX_SONGS_PER_PLAYLIST:
-      MAX_DOWNLOAD_USER:
-      BOT_NAME:
-      FORUM:
-      EMAIL_DEE:
-      PWD_DEE:
-      EMAIL_SPO:
-      PWD_SPO:
-      BOT_TOKEN:
-      ACRCLOUD_KEY: 
-      ACRCLOUD_SECRET: 
-      ACRCLOUD_HOST: 
-      API_ID:
-      API_HASH:
+      - MODE_BOT:=
+      - WARNING_BANNING=
+      - USER_ERRORS:=
+      - BUNKER_CHANNEL=
+      - OWL_CHANNEL:=
+      - ROOT_ID=
+      - METHOD_SAVE=
+      - DOWNLOAD_DIR_MAX_SIZE=
+      - PROGRESS_STATUS_RATE=
+      - TIME_SLEEP=
+      - SECONDS_LIMITS_ALBUM=
+      - SECONDS_LIMITS_TRACK=
+      - UPLOAD_MAX_SIZE_USER=
+      - MAX_SONGS_PER_PLAYLIST=
+      - MAX_DOWNLOAD_USER=
+      - BOT_NAME=
+      - FORUM=
+      - ARL_TOKEN=
+      - EMAIL_DEE=
+      - PWD_DEE=
+      - BOT_TOKEN=
+      - SPOTIFY_CLIENT_ID=
+      - SPOTIFY_CLIENT_SECRET=
+      - ACRCLOUD_KEY=
+      - ACRCLOUD_SECRET=
+      - ACRCLOUD_HOST=
+      - API_ID=
+      - API_HASH=
     volumes:
-      -./DB:/app/DB
+      - ./DB:/app/DB
+      - ./logs:/app/logs
+      - ./credentials:/app/credentials

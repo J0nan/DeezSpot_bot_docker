@@ -3,6 +3,7 @@
 from utils.utils import check_config_bot
 import os
 
+print("Starting bot...")
 check_config_bot()
 mode_bot = int(os.environ.get("MODE_BOT",2))
 
@@ -39,7 +40,7 @@ from configs.customs import (
 	not_found_query_gif, shazam_audio_query,
 	shazam_function_msg, max_download_user_msg,
 	help_msg, help_photo, feedback_text, what_can_I_do,
-	donate_text, reasons_text, startup_text
+	donate_text, reasons_text, startup_text, save_methods
 )
 
 from configs.bot_settings import (
@@ -70,7 +71,8 @@ from inlines.inline_keyboards import (
 	create_keyboad_search, create_keyboard_settings,
 	create_keyboard_qualities, create_shazamed_keyboard,
 	create_keyboard_search_method, create_banned_keyboard,
-	create_c_dws_user_keyboard, create_info_keyboard
+	create_c_dws_user_keyboard, create_info_keyboard,
+	create_keyboard_method_save
 )
 
 bot_chat_id = SetConfigs.tg_bot_api.bot.id
@@ -216,6 +218,10 @@ def handle_callback_queries(update: Update, context):
 		text = "Search methods"
 		c_keyboard = create_keyboard_search_method()
 
+	elif data == "/edit_setting_method_save":
+		text = save_methods
+		c_keyboard = create_keyboard_method_save()
+
 	elif data == "/edit_setting_zips":
 		zips = c_user_data['zips']
 
@@ -244,7 +250,7 @@ def handle_callback_queries(update: Update, context):
 		if source == "SpoDee":
 			c_user_data['source'] = "Dee"
 		else:
-			c_user_data['source'] = "SpoDee"
+			c_user_data['source'] = "Dee"
 
 		c_keyboard = create_keyboard_settings(c_user_data)
 		user_setting_save_db(chat_id, c_user_data)
@@ -261,6 +267,12 @@ def handle_callback_queries(update: Update, context):
 	elif data.startswith("/edit_setting_quality_"):
 		c_data = data.replace("/edit_setting_quality_", "")
 		c_user_data['quality'] = c_data
+		c_keyboard = create_keyboard_settings(c_user_data)
+		user_setting_save_db(chat_id, c_user_data)
+
+	elif data.startswith("/edit_setting_method_save_"):
+		c_data = data.replace("/edit_setting_method_save_", "")
+		c_user_data['method_save'] = int(c_data)
 		c_keyboard = create_keyboard_settings(c_user_data)
 		user_setting_save_db(chat_id, c_user_data)
 

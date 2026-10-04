@@ -77,9 +77,14 @@ __l_bot_settings = len(bot_settings_config)
 __dict_seach_methods = dict(search_methods)
 
 def create_keyboard_settings(datas):
-	datas = list(
-		datas.values()
-	)
+
+	settings_x = [0, 1, 2, 4, 5, 6] #bot_settings_config you want to show, setting is in customs
+
+	bot_settings_configs = [bot_settings_config[i] for i in settings_x]
+	datas = [list(datas.values())[i] for i in settings_x]
+
+
+	__l_bot_settings = len(bot_settings_configs)
 
 	keyboard_settings = []
 
@@ -90,7 +95,7 @@ def create_keyboard_settings(datas):
 			if line2 >= __l_bot_settings:
 				continue
 
-			c_data = bot_settings_config[line2]
+			c_data = bot_settings_configs[line2]
 			msg = c_data[0]
 			cmd = c_data[1]
 			data = datas[line2]
@@ -101,7 +106,7 @@ def create_keyboard_settings(datas):
 				else:
 					msg += ": 🚫"
 			else:
-				if cmd == "search_method":
+				if cmd == "search_method" and data in __dict_seach_methods:
 					data = __dict_seach_methods[data]
 
 				msg += f": {data}"
@@ -171,6 +176,22 @@ def create_keyboard_search_method():
 	keyboad_search_methods += __back_keyboard
 	qualities_keyboard = InlineKeyboardMarkup(keyboad_search_methods)
 	return qualities_keyboard
+
+#increase the numbers here
+def create_keyboard_method_save():
+	keyboard_method_save = [
+		[
+			InlineKeyboardButton(
+				str(i),
+				callback_data = f"/edit_setting_method_save_{i}"
+			)
+			for i in range(4)
+		]
+	]
+
+	keyboard_method_save += __back_keyboard
+	method_save_keyboard = InlineKeyboardMarkup(keyboard_method_save)
+	return method_save_keyboard
 
 def create_shazamed_keyboard(track_link, album_link, artist_link):
 	keyboard_shazamed = [

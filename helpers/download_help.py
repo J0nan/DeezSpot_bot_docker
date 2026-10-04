@@ -57,9 +57,9 @@ l_telegram, l_uploads, l_downloads, l_links = logging_bot()
 def log_error(log, exc_info = False):
 	l_downloads.error(log, exc_info = exc_info)
 
-def write_db(track_md5, file_id, n_quality, chat_id):
+def write_db(track_md5, file_id, n_quality, chat_id, n_method_save):
 	try:
-		write_dwsongs(track_md5, file_id, n_quality, chat_id)
+		write_dwsongs(track_md5, file_id, n_quality, chat_id, n_method_save)
 	except IntegrityError:
 		pass
 
@@ -79,6 +79,8 @@ class DW:
 		self.__send_to_user_zips = user_data['zips']
 		self.__hash_link = hash_link
 		self.__c_download = user_data['c_downloads']
+		self.__method_save = user_data['method_save']
+		print (self.__method_save)
 
 		if user_data['source'] == "SpoDee":
 			conv = False
@@ -117,7 +119,7 @@ class DW:
 				action = ChatAction.UPLOAD_AUDIO
 			)
 
-			sleep(0.1)
+			sleep(0.8)
 			l_uploads.info(f"UPLOADING: {file_id}")
 
 			bot.send_audio(
@@ -132,7 +134,7 @@ class DW:
 				action = ChatAction.UPLOAD_DOCUMENT
 			)
 
-			sleep(0.1)
+			sleep(0.8)
 			l_uploads.info(f"UPLOADING: {file_id}")
 
 			bot.send_document(
@@ -159,7 +161,7 @@ class DW:
 		tag = track.tags
 		track_quality = track.quality
 
-		file_name = set_path(tag, self.__n_quality, f_format, method_save)
+		file_name = set_path(tag, self.__n_quality, f_format, self.__method_save)
 
 		if not isfile(c_path):
 			bot.send_message(
@@ -207,7 +209,7 @@ class DW:
 
 		write_db(
 			track_md5, file_id,
-			track_quality, self.__chat_id
+			track_quality, self.__chat_id, self.__method_save
 		)
 
 		self.__upload_audio(file_id)
@@ -221,7 +223,7 @@ class DW:
 					quality_download = self.__quality,
 					recursive_quality = recursive_quality,
 					recursive_download = recursive_download,
-					method_save = method_save
+					method_save = self.__method_save
 				)
 
 			elif "spotify" in url:
@@ -231,7 +233,7 @@ class DW:
 					quality_download = self.__quality,
 					recursive_quality = recursive_quality,
 					recursive_download = recursive_download,
-					method_save = method_save,
+					method_save = self.__method_save,
 					is_thread = is_thread
 				)
 		except TrackNotFound as error:
@@ -321,7 +323,7 @@ class DW:
 
 			write_db(
 				album_md5, "TOO BIG",
-				album_quality, self.__chat_id
+				album_quality, self.__chat_id, self.__method_save
 			)
 
 			return
@@ -336,7 +338,7 @@ class DW:
 
 		write_db(
 			album_md5, file_id,
-			album_quality, self.__chat_id
+			album_quality, self.__chat_id, self.__method_save
 		)
 
 		self.__upload_zip(file_id)
@@ -357,7 +359,7 @@ class DW:
 		title = track.music
 		f_format = track.file_format
 		tag = track.tags
-		file_name = set_path(tag, self.__n_quality, f_format, method_save)
+		file_name = set_path(tag, self.__n_quality, f_format, self.__method_save)
 		c_progress = f"Uploading ({num_track}/{nb_tracks}): {title}"
 		c_progress += f" {num_track * 100 / nb_tracks:.1f}%"
 		l_uploads.info(c_progress)
@@ -417,7 +419,7 @@ class DW:
 
 			write_db(
 				track_md5, file_id,
-				track_quality, self.__chat_id
+				track_quality, self.__chat_id, self.__method_save
 			)
 
 			self.__upload_audio(file_id)
@@ -436,7 +438,7 @@ class DW:
 				recursive_quality = recursive_quality,
 				recursive_download = recursive_download,
 				make_zip = SetConfigs.create_zips,
-				method_save = method_save
+				method_save = self.__method_save
 			)
 
 		elif "spotify" in url:
@@ -447,7 +449,7 @@ class DW:
 				recursive_quality = recursive_quality,
 				recursive_download = recursive_download,
 				make_zip = SetConfigs.create_zips,
-				method_save = method_save,
+				method_save = self.__method_save,
 				is_thread = is_thread
 			)
 
@@ -484,7 +486,7 @@ class DW:
 		else:
 			write_db(
 				album.album_md5, "TOO BIG",
-				self.__quality, self.__chat_id
+				self.__quality, self.__chat_id, self.__method_save
 			)
 
 	def __send_for_debug(self, link, error):
@@ -508,7 +510,7 @@ class DW:
 	def __check_track(self, link):
 		self.__set_quality(link)
 		link_path = get_url_path(link)
-		match = select_dwsongs(link_path, self.__n_quality)
+		match = select_dwsongs(link_path, self.__n_quality, self.__method_save)
 
 		if match:
 			file_id = match[0]
@@ -527,7 +529,7 @@ class DW:
 	def __check_album(self, link, tracks):
 		self.__set_quality(link)
 		link_path = get_url_path(link)
-		match = select_dwsongs(link_path, self.__n_quality)
+		match = select_dwsongs(link_path, self.__n_quality, self.__method_save)
 
 		if match:
 			file_id = match[0]
@@ -547,7 +549,7 @@ class DW:
 						c_link = track['external_urls']['spotify']
 
 					c_link_path = get_url_path(c_link)
-					c_match = select_dwsongs(c_link_path, self.__n_quality)
+					c_match = select_dwsongs(c_link_path, self.__n_quality, self.__method_save)
 
 					if not c_match:
 						bot.send_message(

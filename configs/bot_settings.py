@@ -5,17 +5,15 @@ from logging import ERROR, INFO
 from utils.converter_bytes import convert_bytes_to
 from telegram.constants import MAX_FILESIZE_DOWNLOAD
 
-def get_env(name, message, cast=str):
-	if name in os.environ:
-		return os.environ[name].strip()
-	else:
-		return message
-
 logs_path = "logs/"
 log_downloads = f"{logs_path}downloads.log"
 log_uploads = f"{logs_path}uploads.log"
 log_telegram = f"{logs_path}telegram.log"
 log_links = f"{logs_path}links.log"
+
+spotify_client_id = str(os.environ.get("SPOTIFY_CLIENT_ID", "c6b23f1e91f84b6a9361de16aba0ae17"))
+spotify_client_secret = str(os.environ.get("SPOTIFY_CLIENT_SECRET", "237e355acaa24636abc79f1a089e6204"))
+spotify_cache_file = os.environ.get("SPOTIFY_CACHE_FILE", ".cache_spoty_token.json")
 
 logger_names = [
 	("telegram.ext.dispatcher", ERROR, log_telegram),
@@ -41,11 +39,11 @@ make_zip = os.environ.get("MAKE_ZIP", True)
 method_save = int(os.environ.get('METHOD_SAVE',3))
 is_thread = os.environ.get("IS_THREAD", True)
 download_dir_max_size = int(os.environ.get("DOWNLOAD_DIR_MAX_SIZE", 6)) #GB
-progress_status_rate = int(os.environ.get("PROGRESS_STATUS_RATE", 15))
+progress_status_rate = int(os.environ.get("PROGRESS_STATUS_RATE", 150))
 
 supported_link = [
 	"www.deezer.com", "open.spotify.com",
-	"deezer.com", "spotify.com", "deezer.page.link"
+	"deezer.com", "spotify.com", "deezer.page.link", "spotify.link"
 ]
 
 time_sleep = int(os.environ.get("TIME_SLEEP", 8))

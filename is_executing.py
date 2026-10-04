@@ -9,7 +9,7 @@ interested = [
 ]
 
 script = "deez_bot.py"
-cmd = f"screen -S Deez_Bot_Anonimia python3 {script}"
+cmd = f"screen -S Deez_Bot_Reddington python3 {script}"
 
 def bot_exist():
 	exist = False
