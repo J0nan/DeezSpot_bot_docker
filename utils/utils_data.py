@@ -171,8 +171,8 @@ def album_dee_data(link):
 	artist = data['artist']['name']
 	date = data['release_date']
 	nb_tracks = data['nb_tracks']
-	tracks = data['tracks']['data']
-	duration = data['duration']
+	tracks = deezer_api.get_all_album_tracks(data)
+	duration = sum(track['duration'] for track in tracks)
 	link_dee = data['link']
 
 	return (

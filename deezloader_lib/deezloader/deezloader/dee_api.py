@@ -246,6 +246,35 @@ class API:
 		return song_metadata
 
 	@classmethod
+	def get_all_album_tracks(cls, album_json) -> list:
+		tracks_data = album_json['tracks']['data']
+		nb_tracks = album_json['nb_tracks']
+		ids = album_json['id']
+
+		# The album object embeds only the first 25 tracks:
+		# when the album is bigger (e.g. multi-disc releases),
+		# the rest of the tracklist is fetched by pagination
+		# through the /album/{ids}/tracks endpoint.
+		if len(tracks_data) < nb_tracks:
+			index = len(tracks_data)
+
+			while index < nb_tracks:
+				url = (
+					f"{cls.__api_link}album/{ids}/tracks"
+					f"?index={index}&limit=100"
+				)
+				page = cls.__get_api(url)
+				c_data = page['data']
+
+				if not c_data:
+					break
+
+				tracks_data.extend(c_data)
+				index += len(c_data)
+
+		return tracks_data
+
+	@classmethod
 	def tracking_album(cls, album_json):
 		song_metadata: dict[
 			str,
@@ -282,7 +311,7 @@ class API:
 		song_metadata['ar_album'] = " & ".join(ar_album)
 		sm_items = song_metadata.items()
 
-		for track in album_json['tracks']['data']:
+		for track in cls.get_all_album_tracks(album_json):
 			c_ids = track['id']
 			detas = cls.tracking(c_ids, album = True)
 
