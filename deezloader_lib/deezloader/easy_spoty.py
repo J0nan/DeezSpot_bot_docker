@@ -1,8 +1,12 @@
 #!/usr/bin/python3
 
+from threading import Lock
+
 from spotipy import Spotify
 from .exceptions import InvalidLink
+from spotapi import PublicPlaylist
 from spotipy.exceptions import SpotifyException
+from spotapi.exceptions import PlaylistError
 from spotipy.cache_handler import CacheFileHandler
 from spotipy.oauth2 import SpotifyClientCredentials
 
@@ -22,6 +26,12 @@ except Exception:
 
 class Spo:
 	__error_codes = [404, 400]
+
+	# SpotAPI serves the whole playlist (no 100-track cap) through the
+	# web player's GraphQL API, which only needs anonymous tokens.
+	__playlist_client = None
+	__playlist_lock = Lock()
+	__playlist_page = 343
 
 	@classmethod
 	def __init__(cls):
@@ -48,6 +58,122 @@ class Spo:
 		return results
 
 	@classmethod
+	def __get_playlist_client(cls):
+		# The anonymous session tokens and the persisted-query hashes
+		# are expensive to fetch, so one client is shared and reused.
+		if cls.__playlist_client is None:
+			with cls.__playlist_lock:
+				if cls.__playlist_client is None:
+					cls.__playlist_client = PublicPlaylist("")
+
+		return cls.__playlist_client
+
+	@staticmethod
+	def __map_playlist_track(item):
+		data = (item.get('itemV2') or {}).get('data')
+		uri = (data or {}).get('uri') or ''
+
+		if not uri.startswith('spotify:track:'):
+			# Episodes, local files and removed tracks cannot be
+			# downloaded, so they map to None like spotipy does.
+			return None
+
+		ids = uri.split(':')[-1]
+		artists = [
+			{
+				'name': artist['profile']['name']
+			}
+
+			for artist in data.get('artists', {}).get('items', [])
+			if artist.get('profile', {}).get('name')
+		]
+		added_at = (item.get('addedAt') or {}).get('isoString')
+
+		return {
+			'added_at': added_at,
+			'track': {
+				'name': data.get('name', 'Unknown'),
+				'artists': artists or [{'name': 'Unknown'}],
+				'external_urls': {
+					'spotify': f"https://open.spotify.com/track/{ids}"
+				}
+			}
+		}
+
+	@staticmethod
+	def __map_playlist_images(playlist_v2):
+		sources = []
+
+		for image in playlist_v2.get('images', {}).get('items', []):
+			c_sources = image.get('sources', [])
+
+			if c_sources:
+				big = max(
+					c_sources,
+					key = lambda source: source.get('width', 0)
+				)
+				sources.append({'url': big.get('url')})
+
+		return sources
+
+	@classmethod
+	def get_playlist(cls, ids):
+		client = cls.__get_playlist_client()
+		items = []
+		playlist_v2 = {}
+
+		try:
+			with cls.__playlist_lock:
+				client.playlist_id = ids
+				client.playlist_link = f"https://open.spotify.com/playlist/{ids}"
+
+				response = client.get_playlist_info(limit = cls.__playlist_page)
+				playlist_v2 = response['data']['playlistV2']
+				content = playlist_v2['content']
+				total = content.get('totalCount', 0)
+				items.extend(content.get('items', []))
+
+				# SpotAPI caps each GraphQL page at 343 tracks; keep
+				# requesting until the whole playlist is fetched.
+				offset = cls.__playlist_page
+
+				while offset < total:
+					response = client.get_playlist_info(
+						limit = cls.__playlist_page,
+						offset = offset
+					)
+					content = response['data']['playlistV2']['content']
+					items.extend(content.get('items', []))
+					offset += cls.__playlist_page
+		except (PlaylistError, KeyError, TypeError):
+			raise InvalidLink(ids)
+
+		mapped_tracks = [
+			mapped for mapped in map(cls.__map_playlist_track, items)
+			if mapped is not None
+		]
+
+		owner = (playlist_v2.get('ownerV2') or {}).get('data') or {}
+
+		playlist_json = {
+			'name': playlist_v2.get('name', 'Unknown'),
+			'owner': {
+				'display_name': owner.get('name', 'Unknown')
+			},
+			'followers': {
+				'total': playlist_v2.get('followers', 0)
+			},
+			'images': cls.__map_playlist_images(playlist_v2),
+			'tracks': {
+				'items': mapped_tracks,
+				'total': total,
+				'next': None
+			}
+		}
+
+		return playlist_json
+
+	@classmethod
 	def get_track(cls, ids):
 		try:
 			track_json = cls.__api.track(ids)
@@ -69,49 +195,6 @@ class Spo:
 		cls.__lazy(tracks)
 
 		return album_json
-
-	@classmethod
-	def get_playlist(cls, ids):
-		try:
-			playlist_json = cls.__api.playlist(ids)
-		except SpotifyException as error:
-			if error.http_status in cls.__error_codes:
-				raise InvalidLink(ids)
-
-		if 'tracks' not in playlist_json:
-			import requests
-			import re
-			import json
-			url = f"https://open.spotify.com/embed/playlist/{ids}"
-			try:
-				headers = {'User-Agent': 'Mozilla/5.0'}
-				html = requests.get(url, headers=headers, timeout=10).text
-				match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html)
-				items = []
-				if match:
-					embed_data = json.loads(match.group(1))
-					trackList = embed_data['props']['pageProps']['state']['data']['entity']['trackList']
-					for t in trackList:
-						uri = t.get('uri', '')
-						t_id = uri.split(':')[-1] if ':' in uri else uri
-						name = t.get('title', 'Unknown')
-						items.append({
-							'added_at': 'Unknown',
-							'track': {
-								'name': name,
-								'external_urls': {
-									'spotify': f"https://open.spotify.com/track/{t_id}"
-								}
-							}
-						})
-				playlist_json['tracks'] = {'items': items, 'next': None}
-			except Exception:
-				playlist_json['tracks'] = {'items': [], 'next': None}
-
-		tracks = playlist_json['tracks']
-		cls.__lazy(tracks)
-
-		return playlist_json
 
 	@classmethod
 	def search(cls, query):

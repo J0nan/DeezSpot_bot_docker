@@ -154,7 +154,7 @@ def playlist_spo_data(link):
 	creation_date = data['tracks']['items'][0]['added_at']
 	creator = data['owner']['display_name']
 	tracks = data['tracks']['items']
-	nb_tracks = len(tracks)
+	nb_tracks = data['tracks']['total']
 
 	return (
 		nb_tracks, n_fans,
