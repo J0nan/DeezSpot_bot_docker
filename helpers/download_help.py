@@ -743,13 +743,13 @@ class DW:
 					self.__chat_id, image_url, caption
 				).message_id
 
-			if nb_tracks > max_song_per_playlist:
-				bot.send_message(
-					chat_id = self.__chat_id,
-					text = f"This playlist contains {nb_tracks} tracks only the first {max_song_per_playlist} will be downloaded"
-				)
+				if nb_tracks > max_song_per_playlist:
+					bot.send_message(
+						chat_id = self.__chat_id,
+						text = f"This playlist contains {nb_tracks} tracks only the first {max_song_per_playlist} will be downloaded"
+					)
 
-			for track, index in zip(
+				for track, index in zip(
 					tracks, range(max_song_per_playlist)
 				):
 					if mode == "deezer":
