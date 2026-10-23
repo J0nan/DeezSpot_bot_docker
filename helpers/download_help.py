@@ -430,28 +430,44 @@ class DW:
 			)
 
 	def __download_album(self, url):
-		if "deezer" in url:
-			album = SetConfigs.deez_api.download_albumdee(
-				url,
-				output_dir = output_songs,
-				quality_download = self.__quality,
-				recursive_quality = recursive_quality,
-				recursive_download = recursive_download,
-				make_zip = SetConfigs.create_zips,
-				method_save = self.__method_save
-			)
+		progress_message_id = bot.send_message(
+			chat_id = self.__chat_id,
+			text = "Downloading album, this may take a while..."
+		).message_id
 
-		elif "spotify" in url:
-			album = SetConfigs.spot_api.download_album(
-				url,
-				output_dir = output_songs,
-				quality_download = self.__quality,
-				recursive_quality = recursive_quality,
-				recursive_download = recursive_download,
-				make_zip = SetConfigs.create_zips,
-				method_save = self.__method_save,
-				is_thread = is_thread
-			)
+		try:
+			if "deezer" in url:
+				album = SetConfigs.deez_api.download_albumdee(
+					url,
+					output_dir = output_songs,
+					quality_download = self.__quality,
+					recursive_quality = recursive_quality,
+					recursive_download = recursive_download,
+					make_zip = SetConfigs.create_zips,
+					method_save = self.__method_save
+				)
+
+			elif "spotify" in url:
+				album = SetConfigs.spot_api.download_album(
+					url,
+					output_dir = output_songs,
+					quality_download = self.__quality,
+					recursive_quality = recursive_quality,
+					recursive_download = recursive_download,
+					make_zip = SetConfigs.create_zips,
+					method_save = self.__method_save,
+					is_thread = is_thread
+				)
+		except Exception:
+			try:
+				bot.delete_message(
+					chat_id = self.__chat_id,
+					message_id = progress_message_id
+				)
+			except BadRequest:
+				pass
+
+			raise
 
 		md5_image = album.md5_image
 		nb_tracks = album.nb_tracks
@@ -463,10 +479,14 @@ class DW:
 
 		num_track = 1
 
-		progress_message_id = bot.send_message(
-			chat_id = self.__chat_id,
-			text = "Starting uploading..."
-		).message_id
+		try:
+			bot.edit_message_text(
+				chat_id = self.__chat_id,
+				message_id = progress_message_id,
+				text = "Starting uploading..."
+			)
+		except BadRequest:
+			pass
 
 		for track in album.tracks:
 			self.__upload_audio_album(

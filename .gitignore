@@ -158,5 +158,5 @@ docker-compose-good.yml
 DB/deez_bot.db
 credentials/*
 .atl/*
-.codegraph/*
+.codegraph
 odd/*
