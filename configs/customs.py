@@ -3,14 +3,14 @@
 import os
 from datetime import datetime
 
-version = 2.0
+version = 3.0
 bot_name = os.environ.get("BOT_NAME", "@")
 creator = "@ReddingtonRedsLeaks & J0n4n (docker)"
 donation = "https://www.google.com"
 source_code_bot = "https://github.com/J0nan/DeezSpot_bot_docker"
 source_code_lib = "https://pypi.org/project/deezloader/"
 forum = os.environ.get("FORUM", "@")
-active_since = "20/08/2025"
+active_since = "24/10/2026"
 date_start = datetime.now()
 last_reset = datetime.strftime(date_start, "%d/%m/%Y %H:%M:%S")
 
@@ -78,12 +78,6 @@ bot_settings_config = [
 	("Save Method", "method_save", "1")
 ]
 
-search_methods = [
-	("results_audio", "Results in Audio"), 
-	("results_article", "Results in Articles"),
-	("results_audio_article", "Results Smooth ;)")
-]
-
 send_image_track_query = (
 	"🎧 Track title: %s\
 	\n👤 Artist: %s\
@@ -140,22 +134,22 @@ inline_textes = {
 
 commands_queries = {
 	"s_art": {
-		"query": "art: %s",
+		"query": "art: ",
 		"text": "Search by artist 👤"
 	},
 
 	"s_alb": {
-		"query": "alb: %s",
+		"query": "alb: ",
 		"text": "Search by album 💽"
 	},
 
 	"s_pla": {
-		"query": "pla: %s",
+		"query": "pla: ",
 		"text": "Search playlist 📂"
 	},
 
 	"s_trk": {
-		"query": "trk: %s",
+		"query": "trk: ",
 		"text": "Search track 🎧"
 	},
 

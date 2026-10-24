@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 
 from time import sleep
-from io import BytesIO
 from os.path import isfile
 from telegram import ChatAction
 from sqlite3 import IntegrityError
@@ -27,6 +26,8 @@ from utils.utils import (
 	get_quality_spo, get_url_path, set_path, 
 	get_size, logging_bot, get_netloc
 )
+
+from utils.thumb_utils import make_thumb_io
 
 from configs.customs import (
 	send_image_track_query, send_image_artist_query,
@@ -152,8 +153,7 @@ class DW:
 		elif self.__source == 2:
 			image_bytes1 = request(track.tags['image3']).content
 
-		io_image = BytesIO(image_bytes1)
-		io_image.name = md5_image
+		thumb_io = make_thumb_io(image_bytes1, md5_image)
 		duration = track.duration
 		performer = track.artist
 		title = track.music
@@ -195,7 +195,7 @@ class DW:
 		file_id = SetConfigs.tg_user_api.send_audio(
 			chat_id = bunker_channel,
 			audio = c_path,
-			thumb = io_image,
+			thumb = thumb_io,
 			duration = duration,
 			performer = performer,
 			title = title,
@@ -305,8 +305,7 @@ class DW:
 		elif self.__source == 2:
 			image_bytes2 = request(album.tags['image2']).content
 
-		image_io2 = BytesIO(image_bytes2)
-		image_io2.name = md5_image
+		thumb_io = make_thumb_io(image_bytes2, md5_image)
 		progress_args = (times, album_name)
 		path_zip = album.zip_path
 		album_md5 = album.album_md5
@@ -331,7 +330,7 @@ class DW:
 		file_id = SetConfigs.tg_user_api.send_document(
 			chat_id = bunker_channel,
 			document = path_zip,
-			thumb = image_io2,
+			thumb = thumb_io,
 			progress = self.__progress_status,
 			progress_args = progress_args
 		).document.file_id
@@ -352,8 +351,7 @@ class DW:
 	):
 		c_path = track.song_path
 		track_md5 = track.track_md5
-		image_io1 = BytesIO(image_bytes1)
-		image_io1.name = track_md5
+		thumb_io = make_thumb_io(image_bytes1, track_md5)
 		duration = track.duration
 		performer = track.artist
 		title = track.music
@@ -405,7 +403,7 @@ class DW:
 			file_id = SetConfigs.tg_user_api.send_audio(
 				chat_id = bunker_channel,
 				audio = c_path,
-				thumb = image_io1,
+				thumb = thumb_io,
 				duration = duration,
 				performer = performer,
 				title = title,

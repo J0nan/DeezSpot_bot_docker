@@ -16,6 +16,46 @@
 	![macOS Support](https://img.shields.io/badge/macOS-Support-brightgreen.svg)
 	![Windows Support](https://img.shields.io/badge/Windows-Support-brightgreen.svg)
 
+# Commands
+
+Every command the bot answers to, for reference and for the Telegram Bot Father (`/setmycommands`). Root-only commands are marked; leave them out of BotFather's list if you want a clean user menu.
+
+| Command | Args | What it does |
+|---------|------|--------------|
+| `/start` | — | Main menu with the search prefix buttons |
+| `/help` | — | How-to photo + short usage text |
+| `/search` | `[query]` | Searches Deezer |
+| `/settings` | — | Your settings: quality, source, filename scheme, zip/track sending |
+| `/quality` | — | Quick picker for your download quality |
+| `/shazam` | — | Explains that a voice note or audio file gets recognized and downloaded |
+| `/kill_dw` | — | Lists your running downloads with a kill button each |
+| `/info` | — | Bot usage stats photo (downloads/users graphs) |
+| `/graphs` | — | Top downloaders leaderboard photos |
+| `/reasons` | — | Why this bot exists |
+| `/feedback` | — | Where to send feedback to the owner |
+| `/donate` | — | Donation info |
+| `/managing_banned` | — | (root only) Banned-users list with unban buttons |
+| `/add_banned` | `[chat id]` | (root only) Bans the user id it asks for |
+
+Paste-ready block for the Bot Father (`/setcommands`), user-facing commands only:
+
+```
+start - Main menu
+help - How to use the bot
+search - Search Deezer: /search [art:|alb:|pla:|trk:] query (empty = chart)
+settings - Your download settings
+quality - Choose audio quality
+shazam - Recognize a song from a voice note or audio
+kill_dw - List and cancel your running downloads
+info - Bot stats
+graphs - Top downloaders
+reasons - Why this bot exists
+feedback - Send feedback
+donate - Support the project
+```
+
+Also note: pasting a Deezer or Spotify **link** (track/album/playlist/artist) is not a command but downloads directly, and any plain text in a private chat runs a search.
+
 # SET UP
 Docker Variables:
 - **MODE_BOT**: (default: 2)

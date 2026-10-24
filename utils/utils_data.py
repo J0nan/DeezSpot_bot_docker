@@ -4,18 +4,8 @@ from deezloader.easy_spoty import Spo
 from configs.set_configs import SetConfigs
 from deezloader.exceptions import NoDataApi
 from deezloader.libutils.utils import get_ids
-from utils.utils import get_quality_dee_s_quality
+from utils.utils import my_round
 from deezloader.deezloader.dee_api import API as deezer_api
-
-from inlines.inline_query_results import (
-	create_result_article_artist, create_result_article_track,
-	create_result_article_album, create_result_article_playlist,
-	create_result_article_artist_album, create_result_article_artist_radio,
-	create_result_article_artist_playlist, create_result_article_chart_album,
-	create_result_article_chart_artist, create_result_article_chart_track,
-	create_result_article_track_audio, create_result_not_found,
-	create_result_article_track_and_audio
-)
 
 def shazam_song(song):
 	data = SetConfigs.acrcloud_api.recognize_audio(song)
@@ -219,121 +209,233 @@ def album_spo_data(link, conv: bool):
 		duration, link
 	)
 
-def __lazy_create(search_method):
-	if search_method == "results_audio":
-		c_create_article = create_result_article_track_audio
-		mode = "results_audio"
+def __item_links(data):
+	# Extra jump targets for the contextual row of the result card.
+	# Deezer track/album payloads expose nested artist/album ids from which
+	# the canonical links are derived; "" means "not available".
+	links = {"album": "", "artist": ""}
+	album = data.get('album')
+	artist = data.get('artist')
 
-	elif search_method == "results_article":
-		c_create_article = create_result_article_track
-		mode = 0
+	if type(album) is dict and 'id' in album:
+		links['album'] = f"https://www.deezer.com/album/{album['id']}"
 
-	elif search_method == "results_audio_article":
-		c_create_article = create_result_article_track_and_audio
-		mode = "results_audio"
+	if type(artist) is dict and 'id' in artist:
+		links['artist'] = f"https://www.deezer.com/artist/{artist['id']}"
 
-	return c_create_article, mode
+	return links
 
-def create_response_article(query: str, user_data):
+def __track_item(data, position = None, link = None):
+	artist = data.get('artist')
+	artist_name = artist['name'] if type(artist) is dict else ""
+	description = (
+		f"Artist: {data['artist']['name']}" +
+		f"\nAlbum: {data['album']['title']}" +
+		f"\nDuration: {my_round(data['duration'] / 60)}" +
+		f"\nRank: {data['rank']}"
+	)
+
+	if position is not None:
+		description += f"\nPosition: {position}"
+
+	return {
+		"id": data['id'],
+		"type": "track",
+		"title": data['title'],
+		# the artist name feeds the list button label
+		"artist": artist_name,
+		"description": description,
+		"link": data['link'] if link is None else link,
+		"image": data['album']['cover_big'],
+		"links": __item_links(data),
+	}
+
+def __artist_item(data, description = None):
+	if description is None:
+		description = (
+			f"Album number: {data['nb_album']}" +
+			f"\nFan number: {data['nb_fan']}"
+		)
+
+	return {
+		"id": data['id'],
+		"type": "artist",
+		"title": data['name'],
+		"description": description,
+		"link": data['link'],
+		"image": data['picture_big'],
+		"links": __item_links(data),
+	}
+
+def __album_item(data, description):
+	return {
+		"id": data['id'],
+		"type": "album",
+		"title": data['title'],
+		"description": description,
+		"link": data['link'],
+		"image": data['cover_big'],
+		"links": __item_links(data),
+	}
+
+def __playlist_item(data, description):
+	return {
+		"id": data['id'],
+		"type": "playlist",
+		"title": data['title'],
+		"description": description,
+		"link": data['link'],
+		"image": data['picture_big'],
+		"links": __item_links(data),
+	}
+
+def execute_search(query: str, user_data):
+	# Pure search core for the message-based card flow: same grammar as
+	# the old create_response_article, plain display-field dicts out. The
+	# per-user search_method setting is gone, so user_data is kept only
+	# for seam compatibility and never read here. An empty list means
+	# "nothing to show": NoDataApi, unknown artist section, or zero results;
+	# the caller renders the not-found photo.
 	s_art = "art: "
 	s_alb = "alb: "
 	s_pla = "pla: "
 	s_trk = "trk: "
 	s_art_id = "artist:"
-	mode = 0
-	search_method = user_data['search_method']
-
-	if search_method.startswith("results_audio"):
-		user_quality = user_data['quality']
-		quality = get_quality_dee_s_quality(user_quality)
-
-	if query.startswith(s_art):
-		c_query = query.replace(s_art, "")
-		c_api = deezer_api.search_artist
-		c_create_article = create_result_article_artist
-
-	elif query.startswith(s_alb):
-		c_query = query.replace(s_alb, "")
-		c_api = deezer_api.search_album
-		c_create_article = create_result_article_album
-
-	elif query.startswith(s_pla):
-		c_query = query.replace(s_pla, "")
-		c_api = deezer_api.search_playlist
-		c_create_article = create_result_article_playlist
-
-	elif query.startswith(s_trk):
-		c_query = query.replace(s_trk, "")
-		c_api = deezer_api.search_track
-		c_create_article, mode = __lazy_create(search_method)
-
-	elif query.startswith(s_art_id):
-		c_query = query.replace(s_art_id, "")
-		s_c_query = c_query.split(":")
-		c_query = s_c_query[0]
-		path = s_c_query[1]
-
-		if path == "top":
-			c_api = deezer_api.get_artist_top_tracks
-			c_create_article, mode = __lazy_create(search_method)
-
-		elif path == "albums":
-			c_api = deezer_api.get_artist_top_albums
-			c_create_article = create_result_article_artist_album
-
-		elif path == "related":
-			c_api = deezer_api.get_artist_related
-			c_create_article = create_result_article_artist
-
-		elif path == "radio":
-			c_api = deezer_api.get_artist_radio
-			c_create_article = create_result_article_artist_radio
-
-		elif path == "playlists":
-			c_api = deezer_api.get_artist_top_playlists
-			c_create_article = create_result_article_artist_playlist
-
-		else:
-			return
-
-	else:
-		c_query = query
-
-		if c_query == "":
-			mode = 1
-			c_api = deezer_api.get_chart
-		else:
-			c_api = deezer_api.search
-			c_create_article, mode = __lazy_create(search_method)
 
 	try:
-		data = c_api(c_query)
+		if query.startswith(s_art):
+			c_query = query.replace(s_art, "")
+			data = deezer_api.search_artist(c_query)
+
+			return [__artist_item(item) for item in data['data']]
+
+		elif query.startswith(s_alb):
+			c_query = query.replace(s_alb, "")
+			data = deezer_api.search_album(c_query)
+
+			return [
+				__album_item(
+					item,
+					f"Tracks number: {item['nb_tracks']}" +
+					f"\nArtist: {item['artist']['name']}"
+				)
+				for item in data['data']
+			]
+
+		elif query.startswith(s_pla):
+			c_query = query.replace(s_pla, "")
+			data = deezer_api.search_playlist(c_query)
+
+			return [
+				__playlist_item(
+					item,
+					f"Tracks number: {item['nb_tracks']}" +
+					f"\nUser: {item['user']['name']}" +
+					f"\nCreation: {item['creation_date']}"
+				)
+				for item in data['data']
+			]
+
+		elif query.startswith(s_trk):
+			c_query = query.replace(s_trk, "")
+			data = deezer_api.search_track(c_query)
+
+			return [__track_item(item) for item in data['data']]
+
+		elif query.startswith(s_art_id):
+			c_query = query.replace(s_art_id, "")
+			s_c_query = c_query.split(":")
+			c_query = s_c_query[0]
+			path = s_c_query[1]
+
+			if path == "top":
+				data = deezer_api.get_artist_top_tracks(c_query)
+
+				return [__track_item(item) for item in data['data']]
+
+			elif path == "albums":
+				data = deezer_api.get_artist_top_albums(c_query)
+
+				return [
+					__album_item(
+						item,
+						f"Release date: {item['release_date']}" +
+						f"\nFans: {item['fans']}"
+					)
+					for item in data['data']
+				]
+
+			elif path == "related":
+				data = deezer_api.get_artist_related(c_query)
+
+				return [__artist_item(item) for item in data['data']]
+
+			elif path == "radio":
+				data = deezer_api.get_artist_radio(c_query)
+
+				return [
+					__track_item(
+						item,
+						link = f"https://deezer.com/track/{item['id']}"
+					)
+					for item in data['data']
+				]
+
+			elif path == "playlists":
+				data = deezer_api.get_artist_top_playlists(c_query)
+
+				return [
+					__playlist_item(
+						item,
+						f"User: {item['user']['name']}" +
+						f"\nCreation: {item['creation_date']}"
+					)
+					for item in data['data']
+				]
+
+			else:
+				return []
+
+		else:
+			c_query = query
+
+			if c_query == "":
+				data = deezer_api.get_chart(c_query)
+				results = [
+					__track_item(item, position = item['position'])
+					for item in data['tracks']['data']
+				]
+				results += [
+					__album_item(
+						item,
+						f"Position: {item['position']}" +
+						f"\nArtist: {item['artist']['name']}"
+					)
+					for item in data['albums']['data']
+				]
+				results += [
+					__artist_item(
+						item,
+						description = f"Position: {item['position']}"
+					)
+					for item in data['artists']['data']
+				]
+				results += [
+					__playlist_item(
+						item,
+						f"Tracks number: {item['nb_tracks']}" +
+						f"\nUser: {item['user']['name']}" +
+						f"\nCreation: {item['creation_date']}"
+					)
+					for item in data['playlists']['data']
+				]
+
+				return results
+
+			data = deezer_api.search(c_query)
+
+			return [__track_item(item) for item in data['data']]
+
 	except NoDataApi:
-		return create_result_not_found()
+		return []
 
-	if mode == 0:
-		data = data['data']
-		results = c_create_article(data)
-
-	elif mode == 1:
-		tracks = data['tracks']['data']
-		albums = data['albums']['data']
-		artists = data['artists']['data']
-		playlists = data['playlists']['data']
-
-		if search_method == "results_audio":
-			results = create_result_article_track_audio(tracks, quality)
-		elif search_method == "results_article":
-			results = create_result_article_chart_track(tracks)
-		elif search_method == "results_audio_article":
-			results = create_result_article_track_and_audio(tracks, quality)
-
-		results += create_result_article_chart_album(albums)
-		results += create_result_article_chart_artist(artists)
-		results += create_result_article_playlist(playlists)
-
-	elif mode == "results_audio":
-		data = data['data']
-		results = c_create_article(data, quality)
-
-	return results

@@ -12,11 +12,12 @@ from ..exceptions import (
 )
 
 class API:
+	__cover_fallback_sizes = ("1000x1000", "500x500")
 
 	@classmethod
 	def __init__(cls):
 		cls.__api_link = "https://api.deezer.com/"
-		cls.__cover = "https://e-cdns-images.dzcdn.net/images/cover/%s/{}-000000-80-0-0.jpg"
+		cls.__cover = "https://cdn-images.dzcdn.net/images/cover/%s/{}-000000-80-0-0.jpg"
 
 	@classmethod
 	def __get_api(cls, url, quota_exceeded = False):
@@ -186,15 +187,28 @@ class API:
 		return image_url
 
 	@classmethod
+	def __img_is_valid(cls, image):
+		return bool(image) and len(image) != 13
+
+	@classmethod
 	def choose_img(cls, md5_image, size = "1200x1200"):
-		image_url = cls.get_img_url(md5_image, size)
-		image = req_get(image_url).content
+		c_sizes = list(
+			dict.fromkeys((size, *cls.__cover_fallback_sizes))
+		)
 
-		if len(image) == 13:
-			image_url = cls.get_img_url("", size)
-			image = req_get(image_url).content
+		for c_size in c_sizes:
+			image = req_get(cls.get_img_url(md5_image, c_size)).content
 
-		return image
+			if cls.__img_is_valid(image):
+				return image
+
+		for c_size in c_sizes:
+			image = req_get(cls.get_img_url("", c_size)).content
+
+			if cls.__img_is_valid(image):
+				return image
+
+		return b""
 
 	@classmethod
 	def tracking(cls, ids, album = False) -> dict:

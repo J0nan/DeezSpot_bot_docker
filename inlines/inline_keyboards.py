@@ -11,7 +11,7 @@ from telegram import (
 
 from configs.customs import (
 	commands_queries, artist_commands_queries,
-	bot_settings_config, inline_textes, search_methods,
+	bot_settings_config, inline_textes,
 	donation, source_code_bot, source_code_lib
 )
 
@@ -30,12 +30,18 @@ __commands_queries = list(
 
 __l_commands_queries = len(__commands_queries)
 
-def create_keyboad_search(to_search):
+def __search_argument(template, to_search):
+	if "%s" in template:
+		return template % to_search
+
+	return f"{template}{to_search}"
+
+def create_keyboad_search(to_search = ""):
 	keyboad_search = [
 		[
 			InlineKeyboardButton(
 				command['text'],
-				switch_inline_query_current_chat = command['query'] % to_search
+				callback_data = f"/sq:{__search_argument(command['query'], to_search)}"
 			)
 			for command in __commands_queries[
 				line:line + 2
@@ -61,7 +67,7 @@ def create_keyboard_artist(link):
 		[
 			InlineKeyboardButton(
 				command['text'],
-				switch_inline_query_current_chat = command['query'] % query
+				callback_data = f"/sq:{command['query'] % query}"
 			)
 			for command in __artist_commands_queries[
 				line:line + 2
@@ -74,11 +80,10 @@ def create_keyboard_artist(link):
 	return artist_keyboard
 
 __l_bot_settings = len(bot_settings_config)
-__dict_seach_methods = dict(search_methods)
 
 def create_keyboard_settings(datas):
 
-	settings_x = [0, 1, 2, 4, 5, 6] #bot_settings_config you want to show, setting is in customs
+	settings_x = [0, 1, 2, 4, 6] #bot_settings_config you want to show, setting is in customs (index 5 "Search Method" is hidden, the DB column stays untouched)
 
 	bot_settings_configs = [bot_settings_config[i] for i in settings_x]
 	datas = [list(datas.values())[i] for i in settings_x]
@@ -106,9 +111,6 @@ def create_keyboard_settings(datas):
 				else:
 					msg += ": 🚫"
 			else:
-				if cmd == "search_method" and data in __dict_seach_methods:
-					data = __dict_seach_methods[data]
-
 				msg += f": {data}"
 
 			c_keyboard = InlineKeyboardButton(
@@ -155,26 +157,6 @@ def create_keyboard_qualities():
 	keyboad_qualities += __back_keyboard
 	qualities_keyboard = InlineKeyboardMarkup(keyboad_qualities)
 
-	return qualities_keyboard
-
-__l_search_methods = len(search_methods)
-
-def create_keyboard_search_method():
-	keyboad_search_methods = [
-		[
-			InlineKeyboardButton(
-				search_method[1],
-				callback_data = f"/edit_setting_search_method_{search_method[0]}"
-			)
-			for search_method in search_methods[
-				line:line + 2
-			]
-		]
-		for line in range(0, __l_search_methods, 2)
-	]
-
-	keyboad_search_methods += __back_keyboard
-	qualities_keyboard = InlineKeyboardMarkup(keyboad_search_methods)
 	return qualities_keyboard
 
 #increase the numbers here

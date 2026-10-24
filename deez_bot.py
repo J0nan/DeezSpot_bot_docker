@@ -21,8 +21,8 @@ from helpers.download_help import DW
 from pyrogram import idle as tg_user_start
 from utils.special_thread import magicThread
 from utils.converter_bytes import convert_bytes_to
-from telegram.error import BadRequest, Unauthorized
-from utils.utils_data import create_response_article, shazam_song
+from telegram.error import BadRequest, Unauthorized, TelegramError
+from utils.utils_data import execute_search, shazam_song
 
 from utils.utils_graphs import (
 	create_graph_users, create_graph_top_downloaders, get_data_downloaders
@@ -33,14 +33,15 @@ from telegram import (
 )
 
 from helpers.db_help import (
-	delete_banned, select_all_users, write_banned
+	delete_banned, select_all_users, write_banned, select_dwsongs
 )
 
 from configs.customs import (
 	not_found_query_gif, shazam_audio_query,
 	shazam_function_msg, max_download_user_msg,
 	help_msg, help_photo, feedback_text, what_can_I_do,
-	donate_text, reasons_text, startup_text, save_methods
+	donate_text, reasons_text, startup_text, save_methods,
+	artist_commands_queries
 )
 
 from configs.bot_settings import (
@@ -59,20 +60,35 @@ from utils.utils_users_bot import (
 from utils.utils import (
 	is_supported_link, get_download_dir_size,
 	clear_download_dir, clear_recorded_dir,
-	my_round, create_tmux
+	my_round, create_tmux, get_url_path
 )
 
 from telegram.ext import (
 	CommandHandler, MessageHandler, Filters,
-	InlineQueryHandler, CallbackQueryHandler
+	CallbackQueryHandler
 )
 
 from inlines.inline_keyboards import (
 	create_keyboad_search, create_keyboard_settings,
 	create_keyboard_qualities, create_shazamed_keyboard,
-	create_keyboard_search_method, create_banned_keyboard,
+	create_banned_keyboard,
 	create_c_dws_user_keyboard, create_info_keyboard,
 	create_keyboard_method_save
+)
+
+from deezloader.libutils.utils import get_ids
+
+from utils.search_cache import (
+	store, resolve, attach_message, get_message,
+	get_items, set_index, get_index,
+	set_scope, clear, get_query, get_scope,
+	get_user_message, get_display,
+	set_page, get_page
+)
+
+from inlines.message_results import (
+	edit_card, send_not_found,
+	send_list, edit_list, total_pages
 )
 
 bot_chat_id = SetConfigs.tg_bot_api.bot.id
@@ -85,6 +101,45 @@ roots_data = {}
 
 to_ban = Filters.user(banned_ids)
 strict_modes = [1, 3]
+
+too_old_answer = "This search is too old, try again"
+
+search_usage_hint = (
+	"Write /search plus a query, or a prefix: "
+	"art: | alb: | pla: | trk: | artist:<id>:<section>"
+)
+
+bare_prefixes = {"art", "alb", "pla", "trk", "artist"}
+
+def is_bare_prefix(query):
+	# the /start prefix buttons send "/sq:art: ": a prefix with no term
+	# would run an empty-term search and answer the not-found card, so the
+	# usage hint replaces it. The colon is required, so a plain word such as
+	# "artist" stays a real query and "artist:<id>:<section>" is untouched.
+	c_query = query.strip()
+
+	if ":" not in c_query:
+		return False
+
+	return c_query.rstrip(":") in bare_prefixes
+
+grammar_query_prefixes = ("art: ", "alb: ", "pla: ", "trk: ", "artist:")
+
+def is_grammar_query(query):
+	# the Track/Album/Artist filter buttons re-run the RAW plain-text query
+	# with a scoped prefix, so the filter row appears ONLY for searches that
+	# started as plain text; grammar queries (and the chart) already fixed
+	# their scope, and stacking a prefix onto "artist:13:top" makes no sense
+	return query.startswith(grammar_query_prefixes)
+
+# keys mirror __list_scopes in inlines/message_results.py (the filter
+# buttons carry exactly these scope names in /srf:<token>:<scope>)
+search_filter_prefixes = {
+	"all": "",
+	"track": "trk: ",
+	"album": "alb: ",
+	"artist": "art: ",
+}
 
 def ban_chat_id(chat_id):
 	write_banned(chat_id)
@@ -171,26 +226,94 @@ def help_download(link, chat_id):
 
 	t.start()
 
-def handle_inline_queries(update: Update, context):
-	inline_query = update.inline_query
-	chat_id = inline_query.from_user.id
+def _run_search(
+	chat_id, query, user_data,
+	message_id = None, user_message_id = None, display = None
+):
+	if is_bare_prefix(query):
+		bot.send_message(
+			chat_id = chat_id,
+			text = search_usage_hint
+		)
 
-	if chat_id in to_ban.user_ids:
 		return
 
-	help_check_user(chat_id)
-	query_id = inline_query.id
-	query = inline_query.query
-	c_user_data = users_data[chat_id]
-	results = create_response_article(query, c_user_data)
+	items = execute_search(query, user_data)
 
-	try:
-		bot.answer_inline_query(
-			inline_query_id = query_id,
-			results = results
+	if not items:
+		send_not_found(bot, chat_id)
+
+		return
+
+	has_filters = bool(query) and not is_grammar_query(query)
+	# the chart (empty query) and grammar searches are not re-scopeable:
+	# the filter row needs a raw text term to re-run, and grammar searches
+	# store an empty raw query so /srf can never stack prefixes
+	# ("trk: art: x", "trk: trk: x") or search an empty term
+	# the header PAINTED first is the header KEPT for later /srb repaints:
+	# store receives the caption, not the raw display, so grammar searches
+	# never fall back to the chart header on Back
+	caption = display if display is not None else query
+
+	token = store(
+		chat_id,
+		items,
+		query if has_filters else "",
+		user_message_id,
+		caption
+	)
+
+	if message_id:
+		edit_list(
+			bot, chat_id, message_id, token, items,
+			caption, has_filters, "all"
 		)
-	except BadRequest:
-		pass
+	else:
+		new_message = send_list(
+			bot, chat_id, token, items,
+			caption, has_filters, "all"
+		)
+		message_id = new_message.message_id
+
+	# the card message id and index ride inside the same cache entry,
+	# re-attached here when store replaced it (contextual jumps)
+	attach_message(chat_id, token, message_id)
+	set_index(chat_id, token, 0)
+
+def delete_search_messages(bot, chat_id, msg_id, token):
+	# Close and Download cleanup: kill the bot's results message and the user
+	# message that started the search, then drop the cache entry. Shared by
+	# the Close button (/src) and Download (/sres) so cleanup behaves the
+	# same on both paths.
+	user_message_id = get_user_message(chat_id, token)
+	alive = get_items(chat_id, token) is not None
+
+	if alive:
+		clear(chat_id)
+
+	for target_id in (msg_id, user_message_id):
+		if target_id is None:
+			# get_user_message is None unless the tapped token still
+			# owns the chat entry, so a forged/old token can only ever
+			# delete the message it sits on
+			continue
+
+		try:
+			bot.delete_message(
+				chat_id = chat_id,
+				message_id = target_id
+			)
+		except TelegramError:
+			if target_id == msg_id:
+				# no delete rights: strip the buttons instead
+				try:
+					bot.edit_message_reply_markup(
+						chat_id = chat_id,
+						message_id = msg_id,
+						reply_markup = None
+					)
+				except TelegramError:
+					pass
 
 def handle_callback_queries(update: Update, context):
 	callback_query = update.callback_query
@@ -213,10 +336,6 @@ def handle_callback_queries(update: Update, context):
 	if data == "/edit_setting_quality":
 		text = "Qualities"
 		c_keyboard = create_keyboard_qualities()
-
-	elif data == "/edit_setting_search_method":
-		text = "Search methods"
-		c_keyboard = create_keyboard_search_method()
 
 	elif data == "/edit_setting_method_save":
 		text = save_methods
@@ -276,11 +395,175 @@ def handle_callback_queries(update: Update, context):
 		c_keyboard = create_keyboard_settings(c_user_data)
 		user_setting_save_db(chat_id, c_user_data)
 
-	elif data.startswith("/edit_setting_search_method_"):
-		c_data = data.replace("/edit_setting_search_method_", "")
-		c_user_data['search_method'] = c_data
-		c_keyboard = create_keyboard_settings(c_user_data)
-		user_setting_save_db(chat_id, c_user_data)
+	elif data.startswith("/srl:"):
+		mode = "srl"
+		c_data = data.replace("/srl:", "")
+		s_data = c_data.split(":")
+		token = s_data[0]
+		index = int(s_data[1])
+		items = get_items(chat_id, token)
+
+		if items is None or index < 0 or index >= len(items):
+			answer = too_old_answer
+		else:
+			set_index(chat_id, token, index)
+			edit_card(
+				bot, chat_id, msg_id,
+				token, items, index, c_user_data
+			)
+
+	elif data.startswith("/srb:"):
+		mode = "srb"
+		token = data.replace("/srb:", "")
+		items = get_items(chat_id, token)
+
+		if items is None:
+			answer = too_old_answer
+		else:
+			# filter buttons return only when the entry kept a raw
+			# plain-text query (grammar searches stored "")
+			has_filters = bool(get_query(chat_id, token))
+			edit_list(
+				bot, chat_id, msg_id, token, items,
+				get_display(chat_id, token),
+				has_filters, get_scope(chat_id, token),
+				get_page(chat_id, token)
+			)
+
+	elif data.startswith("/srp:"):
+		mode = "srp"
+		c_data = data.replace("/srp:", "")
+		s_data = c_data.split(":")
+		token = s_data[0]
+		page = int(s_data[1])
+		items = get_items(chat_id, token)
+
+		if items is None:
+			answer = too_old_answer
+		else:
+			# nav buttons only offer adjacent pages: clamp anyway so a
+			# stale message's Next can never render an empty page
+			page = min(max(page, 0), total_pages(items) - 1)
+			set_page(chat_id, token, page)
+			has_filters = bool(get_query(chat_id, token))
+			edit_list(
+				bot, chat_id, msg_id, token, items,
+				get_display(chat_id, token),
+				has_filters, get_scope(chat_id, token), page
+			)
+
+	elif data.startswith("/srf:"):
+		mode = "srf"
+		c_data = data.replace("/srf:", "")
+		s_data = c_data.split(":")
+		token = s_data[0]
+		scope = s_data[1]
+		query = get_query(chat_id, token)
+
+		if query is None:
+			answer = too_old_answer
+		elif scope not in search_filter_prefixes:
+			answer = "Sorry isn't avalaible :("
+		else:
+			items = execute_search(
+				search_filter_prefixes[scope] + query,
+				c_user_data
+			)
+
+			if not items:
+				answer = "No results for that filter :("
+			else:
+				# same token, same message: only the result rows swap
+				set_scope(chat_id, token, items, scope)
+				edit_list(
+					bot, chat_id, msg_id, token, items,
+					get_display(chat_id, token),
+					True, scope, get_page(chat_id, token)
+				)
+
+	elif data.startswith("/src:"):
+		mode = "src"
+		token = data.replace("/src:", "")
+		# an expired or replaced entry gives None for both: the tapped
+		# message still dies inside the helper, the LIVE entry of the
+		# chat does not
+		delete_search_messages(bot, chat_id, msg_id, token)
+
+		answer = "CLOSED :)"
+
+	elif data.startswith("/sres:"):
+		mode = "sres"
+		c_data = data.replace("/sres:", "")
+		s_data = c_data.split(":")
+		token = s_data[0]
+		index = int(s_data[1])
+		item = resolve(chat_id, token, index)
+
+		if item is None:
+			answer = too_old_answer
+		else:
+			match = None
+
+			if item['type'] == "track":
+				match = select_dwsongs(
+					get_url_path(item['link']),
+					c_user_data['quality'],
+					c_user_data['method_save']
+				)
+
+			if match:
+				bot.send_audio(
+					chat_id = chat_id,
+					audio = match[0]
+				)
+			else:
+				help_download(item['link'], chat_id)
+
+			# the download cleans the search up behind it
+			delete_search_messages(bot, chat_id, msg_id, token)
+
+	elif data.startswith("/ctx:"):
+		mode = "ctx"
+		c_data = data.replace("/ctx:", "")
+		s_data = c_data.split(":")
+		token = s_data[0]
+		kind = s_data[1]
+		item = resolve(chat_id, token, get_index(chat_id, token))
+
+		if item is None:
+			answer = too_old_answer
+		else:
+			ids = get_ids(item['link'])
+			query = f"artist:{ids}:{kind}"
+			command = artist_commands_queries.get(kind)
+			display = (
+				f"{item['title']} · {command['text']}"
+				if command else query
+			)
+			# read the old entry BEFORE store replaces it, so Close keeps
+			# the chat's original text message deletable through the jump
+			user_message_id = get_user_message(chat_id, token)
+
+			_run_search(
+				chat_id,
+				query,
+				c_user_data,
+				message_id = get_message(chat_id, token),
+				user_message_id = user_message_id,
+				display = display
+			)
+
+	elif data.startswith("/sq:"):
+		mode = "sq"
+		query = data[4:]
+
+		if query.strip():
+			_run_search(chat_id, query, c_user_data)
+		else:
+			bot.send_message(
+				chat_id = chat_id,
+				text = search_usage_hint
+			)
 
 	elif data.startswith("/down:"):
 		mode = "down:"
@@ -410,8 +693,28 @@ def start_command(update: Update, context):
 
 	bot.send_message(
 		chat_id = chat_id,
-		text = "YOU JUST PRESSED START YOU WON A NICE DAY :)))",
-		reply_markup = create_keyboad_search("")
+		text = "YOU JUST PRESSED START YOU WON A NICE DAY :)))\n\nSEND ME ANY LINK OR TEXT AND I WILL SEARCH IT FOR YOU :)\n\nIF YOU WANT TO KNOW THE COMMANDS SEND /help",
+	)
+
+def cmd_search(update: Update, context):
+	msg = update.message
+	chat_id = msg.from_user.id
+	date = msg.date
+	help_check_user(chat_id, date)
+	c_user_data = users_data[chat_id]
+	# the command token is dropped whole: Telegram clients emit
+	# "/search@BotName ..." in groups, and a prefix replace would leak the
+	# bot username into the query and miss the grammar
+	parts = msg.text.split(" ", 1)
+	query = parts[1] if len(parts) > 1 else ""
+
+	# the command message rides in the entry too: Close deletes whatever
+	# message triggered the search, plain or grammar
+	_run_search(
+		chat_id,
+		query,
+		c_user_data,
+		user_message_id = msg.message_id
 	)
 
 def settings_command(update: Update, context):
@@ -670,10 +973,20 @@ def msgs_handler(update: Update, context):
 	date = msg.date
 	help_check_user(chat_id, date)
 
+	if msg.chat.type == "private":
+		c_user_data = users_data[chat_id]
+		_run_search(
+			chat_id,
+			text,
+			c_user_data,
+			user_message_id = msg.message_id
+		)
+
+		return
+
 	bot.send_message(
 		chat_id = chat_id,
-		text = text,
-		reply_markup = create_keyboad_search(text)
+		text = text
 	)
 
 def controls_links(update: Update, context):
@@ -793,6 +1106,14 @@ graphs_handler = CommandHandler(
 
 dispatcher.add_handler(graphs_handler)
 
+search_handler = CommandHandler(
+	"search",
+	cmd_search,
+	filters = ~ to_ban, run_async = True
+)
+
+dispatcher.add_handler(search_handler)
+
 filter_owl_channel = Filters.chat(owl_channel)
 
 send_global_msg_handler = MessageHandler(
@@ -841,12 +1162,6 @@ audio_msgs = MessageHandler(
 )
 
 dispatcher.add_handler(audio_msgs)
-
-inline_queries = InlineQueryHandler(
-	handle_inline_queries, run_async = True
-)
-
-dispatcher.add_handler(inline_queries)
 
 callback_queries = CallbackQueryHandler(
 	handle_callback_queries, run_async = True
