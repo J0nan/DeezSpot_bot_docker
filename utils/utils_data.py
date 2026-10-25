@@ -210,18 +210,19 @@ def album_spo_data(link, conv: bool):
 	)
 
 def __item_links(data):
-	# Extra jump targets for the contextual row of the result card.
-	# Deezer track/album payloads expose nested artist/album ids from which
-	# the canonical links are derived; "" means "not available".
+	# Jump ids for the contextual row of the result card: the buttons open
+	# the bot's OWN detail card for the exact album/artist (fetched by id
+	# via /ctx), never an external deezer.com link. Deezer track/album
+	# payloads expose nested artist/album dicts; "" means "not available".
 	links = {"album": "", "artist": ""}
 	album = data.get('album')
 	artist = data.get('artist')
 
 	if type(album) is dict and 'id' in album:
-		links['album'] = f"https://www.deezer.com/album/{album['id']}"
+		links['album'] = str(album['id'])
 
 	if type(artist) is dict and 'id' in artist:
-		links['artist'] = f"https://www.deezer.com/artist/{artist['id']}"
+		links['artist'] = str(artist['id'])
 
 	return links
 
@@ -288,6 +289,36 @@ def __playlist_item(data, description):
 		"image": data['picture_big'],
 		"links": __item_links(data),
 	}
+
+def get_album_card(ids):
+	# Detail card behind the "Album 💽" contextual button: the exact album
+	# by Deezer id, in the same item shape the "alb: " search branch
+	# produces. None means "nothing to show" (NoDataApi or a payload
+	# shape the card cannot render) so the callback handler never sees a
+	# raise.
+	try:
+		data = deezer_api.get_album(ids)
+
+		return __album_item(
+			data,
+			f"Tracks number: {data['nb_tracks']}" +
+			f"\nArtist: {data['artist']['name']}"
+		)
+
+	except (NoDataApi, KeyError, TypeError):
+		return None
+
+def get_artist_card(ids):
+	# Detail card behind the "Artist 👤" contextual button: the exact
+	# artist by Deezer id, in the same item shape the "art: " search
+	# branch produces. None on NoDataApi or an odd payload shape.
+	try:
+		data = deezer_api.get_artist(ids)
+
+		return __artist_item(data)
+
+	except (NoDataApi, KeyError, TypeError):
+		return None
 
 def execute_search(query: str, user_data):
 	# Pure search core for the message-based card flow: same grammar as

@@ -176,33 +176,24 @@ def __card_caption(item):
 	# markdown characters, and Telegram captions without parse_mode are safe.
 	return f"{item['title']}\n\n{item['description']}"
 
-def __url_row(buttons):
-	# Buttons of the contextual row: a "" link means the result has no such
-	# target, so the button is skipped instead of sending the user
-	# nowhere.
-	return [
-		InlineKeyboardButton(
-			text,
-			url = url
-		)
-		for text, url in buttons
-		if url
-	]
-
 def __contextual_row(token, item):
+	# Jump buttons of the card: they open the bot's OWN detail card for
+	# the exact album/artist (fetched by Deezer id through /ctx), never a
+	# deezer.com URL. A "" id means the result has no such target, so the
+	# button is skipped instead of sending the user nowhere.
 	item_type = item['type']
 	links = item['links']
 
 	if item_type == "track":
-		return __url_row([
-			("Album 💽", links['album']),
-			("Artist 👤", links['artist'])
-		])
+		targets = [
+			("Album 💽", links['album'], "album"),
+			("Artist 👤", links['artist'], "artist"),
+		]
 
 	elif item_type == "album":
-		return __url_row([
-			("Artist 👤", links['artist'])
-		])
+		targets = [
+			("Artist 👤", links['artist'], "artist"),
+		]
 
 	elif item_type == "artist":
 		return [
@@ -213,7 +204,17 @@ def __contextual_row(token, item):
 			for kind, command in artist_commands_queries.items()
 		]
 
-	return []
+	else:
+		return []
+
+	return [
+		InlineKeyboardButton(
+			text,
+			callback_data = f"/ctx:{token}:{kind}"
+		)
+		for text, ids, kind in targets
+		if ids
+	]
 
 def create_keyboard_result(token, items, index, user_data):
 	item = items[index]

@@ -22,7 +22,7 @@ from pyrogram import idle as tg_user_start
 from utils.special_thread import magicThread
 from utils.converter_bytes import convert_bytes_to
 from telegram.error import BadRequest, Unauthorized, TelegramError
-from utils.utils_data import execute_search, shazam_song
+from utils.utils_data import execute_search, shazam_song, get_album_card, get_artist_card
 
 from utils.utils_graphs import (
 	create_graph_users, create_graph_top_downloaders, get_data_downloaders
@@ -546,6 +546,49 @@ def handle_callback_queries(update: Update, context):
 
 		if item is None:
 			answer = too_old_answer
+		elif kind in ("album", "artist"):
+			# the contextual buttons jump to the bot's OWN detail card
+			# for the exact album/artist, never to a deezer.com URL
+			ids = item['links'].get(kind)
+
+			if not ids:
+				# card rendered before the url-to-id change: the stale
+				# button sits on an item whose links carry no id to jump
+				# with, so treat it like an expired entry
+				answer = too_old_answer
+			else:
+				if kind == "album":
+					card = get_album_card(ids)
+				else:
+					card = get_artist_card(ids)
+
+				if card is None:
+					answer = "No results :("
+				else:
+					# single-item card view: same jump bookkeeping order
+					# as _run_search, but rendered with edit_card. Read
+					# the old entry BEFORE store replaces it, so Close
+					# keeps the chat's original text message deletable
+					# through the jump
+					user_message_id = get_user_message(chat_id, token)
+					message_id = get_message(chat_id, token)
+					items = [card]
+					card_title = card['title']
+
+					token2 = store(
+						chat_id,
+						items,
+						"",
+						user_message_id,
+						card_title
+					)
+
+					edit_card(
+						bot, chat_id, message_id,
+						token2, items, 0, c_user_data
+					)
+					attach_message(chat_id, token2, message_id)
+					set_index(chat_id, token2, 0)
 		else:
 			ids = get_ids(item['link'])
 			query = f"artist:{ids}:{kind}"
