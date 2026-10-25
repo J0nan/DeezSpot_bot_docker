@@ -3,9 +3,9 @@
 import os
 from datetime import datetime
 
-version = 3.1
+version = 3.2
 bot_name = os.environ.get("BOT_NAME", "@")
-creator = "@ReddingtonRedsLeaks & J0n4n (docker)"
+creator = "@"
 donation = "https://www.google.com"
 source_code_bot = "https://github.com/J0nan/DeezSpot_bot_docker"
 source_code_lib = "https://pypi.org/project/deezloader/"
@@ -24,8 +24,8 @@ album_too_long = "DON'T YOU GET BORE LISTENING AN ALBUM SO LONG :)))"
 track_too_long = "DON'T YOU GET BORE LISTENING A TRACK SO LONG :)))"
 
 shazam_function_msg = "You found a fantastic function, if you send a vocal message or an audio, you will see :)"
-max_download_user_msg = "You have reached, max download per time avalaible, wait or kill someone :)"
-help_msg = f"WELCOME IN {bot_name} here you can find the commands avalaible, JUST TRY IT :)"
+max_download_user_msg = "You have reached, max download per time available, wait or kill someone :)"
+help_msg = f"WELCOME IN {bot_name} here you can find the commands available, JUST TRY IT :)"
 help_photo = open("photos/help_msg.jpg", "rb")
 
 feedback_text = f"If you have any question, just ask to this dude {creator}"

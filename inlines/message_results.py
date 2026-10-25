@@ -221,7 +221,7 @@ def create_keyboard_result(token, items, index, user_data):
 	download_text = "⬇️ Download"
 
 	if __is_cached(item, user_data):
-		download_text = "⬇️ Play cached"
+		download_text = "⬇️ Download cached"
 
 	# The Prev/Next carousel is gone (the LIST view replaced it). The
 	# detail card keeps ⬅️ Back to return to that list and ❌ Close.
