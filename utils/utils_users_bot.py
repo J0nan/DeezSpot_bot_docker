@@ -17,6 +17,36 @@ from helpers.db_help import (
 	select_all_downloads, select_all_users
 )
 
+users_page_size = 20
+
+def users_total_pages(total):
+	if total <= 0:
+		return 0
+
+	return (total + users_page_size - 1) // users_page_size
+
+def clamp_users_page(page, total):
+	pages = users_total_pages(total)
+
+	if pages == 0:
+		return 0
+
+	return max(0, min(page, pages - 1))
+
+def format_users_page(rows, total, page):
+	# plain text by design: usernames arrive unescaped, so the /users
+	# message must never be sent with a parse_mode
+	offset = page * users_page_size
+	lines = [f"👥 {total} users — page {page + 1}/{users_total_pages(total)}"]
+
+	for index, row in enumerate(rows):
+		chat_id, username, last_used, dw_count = row
+		name = f"@{username} (id: {chat_id})" if username else str(chat_id)
+		last = last_used if last_used else "never"
+		lines.append(f"{offset + index + 1}. {name} | last: {last} | dw: {dw_count}")
+
+	return "\n".join(lines)
+
 def users_set_cache(chat_id, users_data):
 	user_exist = True
 

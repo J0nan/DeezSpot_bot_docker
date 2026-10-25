@@ -16,11 +16,6 @@ __locator = months_dates.MonthLocator()
 __fmt = months_dates.DateFormatter("%b")
 __many = 10
 
-__manies = [
-	a
-	for a in range(1, 11)
-]
-
 def __get_data_users():
 	num_of_months = len(month_abbr)
 	datetime_months = []
@@ -89,12 +84,22 @@ def get_data_downloaders():
 def create_graph_top_downloaders() -> BytesIO:
 	users, nums_downloads = get_data_downloaders()
 
-	plt.stem(__manies, nums_downloads)
+	# select_dwsongs_top_downloaders returns 0..10 rows (GROUP BY chat_id
+	# LIMIT 10), so stem positions follow the actual row count; matplotlib
+	# raises on empty stem data, draw the stems only when there are any
+	nums_positions = [
+		a
+		for a in range(1, len(nums_downloads) + 1)
+	]
+
+	if nums_downloads:
+		plt.stem(nums_positions, nums_downloads)
+
 	plt.title(f"{bot_name} top downloaders", fontweight = "bold")
 	plt.xlabel("Users")
 	plt.ylabel("Downloads")
 	plt.legend(["Downloads"])
-	plt.xticks(__manies)
+	plt.xticks(nums_positions)
 
 	x = plt.gca().xaxis
 	x.grid()
@@ -102,7 +107,7 @@ def create_graph_top_downloaders() -> BytesIO:
 	y = plt.gca().yaxis
 	y.grid()
 
-	for num, num_downloads in zip(__manies, nums_downloads):
+	for num, num_downloads in zip(nums_positions, nums_downloads):
 		plt.text(num, num_downloads, num_downloads)
 
 	buf = BytesIO()

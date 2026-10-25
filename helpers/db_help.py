@@ -61,6 +61,21 @@ def initialize_db():
 	cur.execute(query_create_table_dwsongs)
 	cur.execute(query_create_table_users_settings)
 	cur.execute(query_create_table_banned)
+
+	# guarded migration: old DBs carry neither column, and the `date`
+	# column keeps its registration meaning (utils_graphs reads it)
+	cur.execute("PRAGMA table_info(users_settings)")
+	users_settings_existing_columns = [
+		column[1]
+		for column in cur.fetchall()
+	]
+
+	if "last_used" not in users_settings_existing_columns:
+		cur.execute("ALTER TABLE users_settings ADD COLUMN last_used DATE")
+
+	if "username" not in users_settings_existing_columns:
+		cur.execute("ALTER TABLE users_settings ADD COLUMN username VARCHAR(32)")
+
 	con.commit()
 	con.close()
 
@@ -210,6 +225,24 @@ def update_users_settings(user_settings, chat_id):
 	con.commit()
 	con.close()
 
+def touch_users_settings(chat_id, last_used, username):
+	con = db_connect(db_name)
+	cur = con.cursor()
+
+	# MAX() keeps last_used monotonic: callback handlers pass the age of
+	# the pressed message, so a tap on an old post must never rewind it
+	query_touch_users_settings = "UPDATE users_settings SET last_used = MAX(COALESCE(last_used, ?), ?), username = COALESCE(?, username) WHERE chat_id = ?"
+
+	cur.execute(
+		query_touch_users_settings,
+		(
+			last_used, last_used, username, chat_id
+		)
+	)
+
+	con.commit()
+	con.close()
+
 def select_users_settings(chat_id):
 	con = db_connect(db_name)
 	cur = con.cursor()
@@ -276,6 +309,34 @@ def select_dwsongs_top_downloaders(many):
 	)
 
 	match = cur.fetchall()
+	con.close()
+
+	return match
+
+def select_users_listing(limit, offset):
+	con = db_connect(db_name)
+	cur = con.cursor()
+
+	# LEFT JOIN keeps users with zero downloads (count 0); never-used
+	# users (NULL last_used) sort after every timestamped user
+	cur.execute(
+		"SELECT u.chat_id, u.username, u.last_used, COUNT(d.id) FROM users_settings u LEFT JOIN dwsongs d ON d.chat_id = u.chat_id GROUP BY u.chat_id ORDER BY u.last_used IS NULL, u.last_used DESC, u.chat_id LIMIT ? OFFSET ?",
+		(
+			limit, offset
+		)
+	)
+
+	match = cur.fetchall()
+	con.close()
+
+	return match
+
+def count_users_settings():
+	con = db_connect(db_name)
+	cur = con.cursor()
+	query_count_users_settings = "SELECT COUNT(chat_id) FROM users_settings"
+	cur.execute(query_count_users_settings)
+	match = cur.fetchone()
 	con.close()
 
 	return match

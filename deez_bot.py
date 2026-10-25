@@ -33,7 +33,8 @@ from telegram import (
 )
 
 from helpers.db_help import (
-	delete_banned, select_all_users, write_banned, select_dwsongs
+	delete_banned, select_all_users, write_banned, select_dwsongs,
+	touch_users_settings, select_users_listing, count_users_settings
 )
 
 from configs.customs import (
@@ -54,13 +55,16 @@ from configs.bot_settings import (
 from utils.utils_users_bot import (
 	user_setting_save_db, users_set_cache,
 	check_flood, get_banned_ids,
-	get_info, kill_threads
+	get_info, kill_threads,
+	users_page_size, users_total_pages,
+	clamp_users_page, format_users_page
 )
 
 from utils.utils import (
 	is_supported_link, get_download_dir_size,
 	clear_download_dir, clear_recorded_dir,
-	my_round, create_tmux, get_url_path
+	my_round, create_tmux, get_url_path,
+	extract_supported_link
 )
 
 from telegram.ext import (
@@ -73,7 +77,7 @@ from inlines.inline_keyboards import (
 	create_keyboard_qualities, create_shazamed_keyboard,
 	create_banned_keyboard,
 	create_c_dws_user_keyboard, create_info_keyboard,
-	create_keyboard_method_save
+	create_keyboard_method_save, create_users_keyboard
 )
 
 from deezloader.libutils.utils import get_ids
@@ -145,7 +149,7 @@ def ban_chat_id(chat_id):
 	write_banned(chat_id)
 	to_ban.add_chat_ids(chat_id)
 
-def help_check_user(chat_id, date = None):
+def help_check_user(chat_id, date = None, from_user = None):
 	if (
 		(mode_bot in strict_modes) and 
 		(not chat_id in root_ids)
@@ -162,6 +166,16 @@ def help_check_user(chat_id, date = None):
 	user_exist = users_set_cache(chat_id, users_data)
 
 	if date:
+		# every tracked interaction refreshes the row: last_used always
+		# moves, username is kept when this update carries none.
+		# tracking must never abort the interaction: a locked or busy
+		# sqlite file degrades to a missing timestamp, not a dead bot
+		try:
+			c_username = from_user.username if from_user else None
+			touch_users_settings(chat_id, date.strftime("%Y-%m-%d %H:%M:%S"), c_username)
+		except Exception:
+			pass
+
 		user_data = users_data[chat_id]
 		result = check_flood(date, user_data, chat_id)
 
@@ -586,6 +600,35 @@ def handle_callback_queries(update: Update, context):
 			t.kill()
 			del c_dws[c_hash]
 
+	elif data.startswith("/usr_pg:"):
+		mode = "usr_pg"
+		c_page = int(data.replace("/usr_pg:", ""))
+
+		if not chat_id in root_ids:
+			answer = "ONLY ADMINS CAN NAVIGATE THIS LIST"
+		else:
+			total = count_users_settings()[0]
+			pages = users_total_pages(total)
+
+			if pages == 0:
+				answer = "No users yet"
+			else:
+				# a stale message's Next can outlive deleted users:
+				# clamp to the last page so no tap renders an empty one
+				page = clamp_users_page(c_page, total)
+				rows = select_users_listing(users_page_size, page * users_page_size)
+
+				try:
+					bot.edit_message_text(
+						chat_id = chat_id,
+						message_id = msg_id,
+						text = format_users_page(rows, total, page),
+						reply_markup = create_users_keyboard(page, pages)
+					)
+				except BadRequest:
+					# re-tapping the page indicator edits identical text
+					pass
+
 	else:
 		mode = 1
 		answer = "Sorry isn't avalaible :("
@@ -689,7 +732,7 @@ def start_command(update: Update, context):
 	msg = update.message
 	chat_id = msg.from_user.id
 	date = msg.date
-	help_check_user(chat_id, date)
+	help_check_user(chat_id, date, from_user = msg.from_user)
 
 	bot.send_message(
 		chat_id = chat_id,
@@ -700,7 +743,7 @@ def cmd_search(update: Update, context):
 	msg = update.message
 	chat_id = msg.from_user.id
 	date = msg.date
-	help_check_user(chat_id, date)
+	help_check_user(chat_id, date, from_user = msg.from_user)
 	c_user_data = users_data[chat_id]
 	# the command token is dropped whole: Telegram clients emit
 	# "/search@BotName ..." in groups, and a prefix replace would leak the
@@ -721,7 +764,7 @@ def settings_command(update: Update, context):
 	msg = update.message
 	chat_id = msg.from_user.id
 	date = msg.date
-	help_check_user(chat_id, date)
+	help_check_user(chat_id, date, from_user = msg.from_user)
 	c_user_data = users_data[chat_id]
 
 	bot.send_message(
@@ -734,7 +777,7 @@ def quality_command(update: Update, context):
 	msg = update.message
 	chat_id = msg.from_user.id
 	date = msg.date
-	help_check_user(chat_id, date)
+	help_check_user(chat_id, date, from_user = msg.from_user)
 	c_user_data = users_data[chat_id]
 
 	bot.send_message(
@@ -820,7 +863,7 @@ def shazam_command(update: Update, context):
 	msg = update.message
 	chat_id = msg.from_user.id
 	date = msg.date
-	help_check_user(chat_id, date)
+	help_check_user(chat_id, date, from_user = msg.from_user)
 
 	bot.send_message(
 		chat_id = chat_id,
@@ -831,7 +874,7 @@ def kill_dw_command(update: Update, context):
 	msg = update.message
 	chat_id = msg.from_user.id
 	date = msg.date
-	help_check_user(chat_id, date)
+	help_check_user(chat_id, date, from_user = msg.from_user)
 	c_user_data = users_data[chat_id]
 	c_downloads = c_user_data['c_downloads']
 
@@ -860,7 +903,7 @@ def info_command(update: Update, context):
 	msg = update.message
 	chat_id = msg.from_user.id
 	date = msg.date
-	help_check_user(chat_id, date)
+	help_check_user(chat_id, date, from_user = msg.from_user)
 	users_graph = create_graph_users()
 
 	bot.send_photo(
@@ -874,7 +917,7 @@ def reasons_command(update: Update, context):
 	msg = update.message
 	chat_id = msg.from_user.id
 	date = msg.date
-	help_check_user(chat_id, date)
+	help_check_user(chat_id, date, from_user = msg.from_user)
 
 	bot.send_message(
 		chat_id = chat_id,
@@ -885,7 +928,7 @@ def help_command(update: Update, context):
 	msg = update.message
 	chat_id = msg.from_user.id
 	date = msg.date
-	help_check_user(chat_id, date)
+	help_check_user(chat_id, date, from_user = msg.from_user)
 
 	bot.send_photo(
 		chat_id = chat_id,
@@ -902,7 +945,7 @@ def feedback_command(update: Update, context):
 	msg = update.message
 	chat_id = msg.from_user.id
 	date = msg.date
-	help_check_user(chat_id, date)
+	help_check_user(chat_id, date, from_user = msg.from_user)
 
 	bot.send_message(
 		chat_id = chat_id,
@@ -913,7 +956,7 @@ def donate_command(update: Update, context):
 	msg = update.message
 	chat_id = msg.from_user.id
 	date = msg.date
-	help_check_user(chat_id, date)
+	help_check_user(chat_id, date, from_user = msg.from_user)
 
 	bot.send_message(
 		chat_id = chat_id,
@@ -925,7 +968,7 @@ def graphs_command(update: Update, context):
 	msg = update.message
 	chat_id = msg.from_user.id
 	date = msg.date
-	help_check_user(chat_id, date)
+	help_check_user(chat_id, date, from_user = msg.from_user)
 	downloads_graph = create_graph_top_downloaders()
 	users_graph = create_graph_users()
 	users, nums_downloads = get_data_downloaders()
@@ -953,6 +996,29 @@ def graphs_command(update: Update, context):
 		media = medias
 	)
 
+def users_command(update: Update, context):
+	msg = update.message
+	chat_id = msg.from_user.id
+
+	total = count_users_settings()[0]
+
+	if total == 0:
+		bot.send_message(
+			chat_id = chat_id,
+			text = "No users yet"
+		)
+
+		return
+
+	pages = users_total_pages(total)
+	rows = select_users_listing(users_page_size, 0)
+
+	bot.send_message(
+		chat_id = chat_id,
+		text = format_users_page(rows, total, 0),
+		reply_markup = create_users_keyboard(0, pages)
+	)
+
 def msgs_handler(update: Update, context):
 	msg = update.message
 	chat_id = msg.from_user.id
@@ -971,7 +1037,17 @@ def msgs_handler(update: Update, context):
 			return
 
 	date = msg.date
-	help_check_user(chat_id, date)
+	help_check_user(chat_id, date, from_user = msg.from_user)
+
+	# a link pasted with rich formatting carries a TEXT_LINK entity, so the
+	# control_links handler (URL entity filter) never sees it: try a music
+	# link here before falling through to a text search of the link label
+	c_link = extract_supported_link(msg.text, msg.entities)
+
+	if c_link:
+		help_download(c_link, chat_id)
+
+		return
 
 	if msg.chat.type == "private":
 		c_user_data = users_data[chat_id]
@@ -993,9 +1069,15 @@ def controls_links(update: Update, context):
 	msg = update.message
 	chat_id = msg.from_user.id
 	date = msg.date
-	help_check_user(chat_id, date)
-	entity_link = msg.entities[0]
-	link = msg.parse_entity(entity_link)
+	help_check_user(chat_id, date, from_user = msg.from_user)
+	link = extract_supported_link(msg.text, msg.entities)
+
+	# no music link among the entities: legacy path, the URL filter
+	# guaranteed entities[0] before this change
+	if not link:
+		entity_link = msg.entities[0]
+		link = msg.parse_entity(entity_link)
+
 	help_download(link, chat_id)
 
 dispatcher = SetConfigs.tg_bot_api.dispatcher
@@ -1041,6 +1123,14 @@ add_banned_handler = CommandHandler(
 )
 
 dispatcher.add_handler(add_banned_handler)
+
+users_handler = CommandHandler(
+	"users",
+	users_command,
+	filters = to_root, run_async = True
+)
+
+dispatcher.add_handler(users_handler)
 
 shazam_handler = CommandHandler(
 	"shazam",
@@ -1101,7 +1191,7 @@ dispatcher.add_handler(donate_handler)
 graphs_handler = CommandHandler(
 	"graphs",
 	graphs_command,
-	filters = ~ to_ban, run_async = True
+	filters = to_root, run_async = True
 )
 
 dispatcher.add_handler(graphs_handler)

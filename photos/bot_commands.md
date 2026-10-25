@@ -1,8 +1,10 @@
-start - Start this bot
-settings - Set your settings
-quality - Set quality download
+start - Main menu
+help - How to use the bot
+settings - Your download settings
+quality - Choose audio quality
+kill_dw - List and cancel your running downloads
+info - Bot stats
+graphs - Top downloaders
 managing_banned - ADMIN ONLY
 add_banned - ADMIN ONLY
-kill_dw - Kill current downloads💣
-info - Show me something about this bot
-help - SOMEBODY HELP ME👨‍🚒
+users - ADMIN ONLY

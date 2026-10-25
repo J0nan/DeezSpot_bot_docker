@@ -84,6 +84,45 @@ def is_supported_link(link):
 
 	return is_supported
 
+def __utf16_slice(string, offset, length):
+	# telegram entity offsets and lengths count UTF-16 code units while
+	# python strings index code points: astral chars (emoji) take two
+	# units, so a plain string slice can cut inside the url
+	encoded = string.encode("utf-16-le")
+
+	try:
+		sliced = encoded[
+			offset * 2 : (offset + length) * 2
+		]
+
+		return sliced.decode("utf-16-le")
+	except UnicodeDecodeError:
+		# boundary splits a surrogate pair: no clean candidate
+		return None
+
+def extract_supported_link(text, entities):
+	# entity types are the python-telegram-bot v13 string values so this
+	# scan stays importable without telegram itself
+	if not entities:
+		return None
+
+	for entity in entities:
+		if entity.type == "url":
+			candidate = __utf16_slice(
+				text, entity.offset, entity.length
+			)
+
+		elif entity.type == "text_link":
+			candidate = entity.url
+
+		else:
+			continue
+
+		if candidate and is_supported_link(candidate):
+			return candidate
+
+	return None
+
 def __get_tronc(string):
 	l_encoded = len(
 		string.encode()

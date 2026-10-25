@@ -36,6 +36,7 @@ Every command the bot answers to, for reference and for the Telegram Bot Father 
 | `/donate` | — | Donation info |
 | `/managing_banned` | — | (root only) Banned-users list with unban buttons |
 | `/add_banned` | `[chat id]` | (root only) Bans the user id it asks for |
+| `/users` | — | (root only) Registered users with last-used date and download count, 20 per page with Prev/Next buttons |
 
 Paste-ready block for the Bot Father (`/setcommands`), user-facing commands only:
 
@@ -52,9 +53,12 @@ graphs - Top downloaders
 reasons - Why this bot exists
 feedback - Send feedback
 donate - Support the project
+managing_banned - ADMIN ONLY
+add_banned - ADMIN ONLY
+users - ADMIN ONLY
 ```
 
-Also note: pasting a Deezer or Spotify **link** (track/album/playlist/artist) is not a command but downloads directly, and any plain text in a private chat runs a search.
+Also note: pasting a Deezer or Spotify **link** (track/album/playlist/artist) is not a command but downloads directly, plain or rich-formatted, and any plain text in a private chat runs a search.
 
 # SET UP
 Docker Variables:

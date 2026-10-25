@@ -220,6 +220,37 @@ def create_banned_keyboard():
 	banned_keyboard = InlineKeyboardMarkup(keyboard_banned)
 	return banned_keyboard
 
+def create_users_keyboard(page, pages):
+	# same nav shape as the search list: Prev/Next hide when
+	# inapplicable and the page indicator re-renders its own page
+	nav_row = []
+
+	if page > 0:
+		nav_row.append(
+			InlineKeyboardButton(
+				"◀️ Prev",
+				callback_data = f"/usr_pg:{page - 1}"
+			)
+		)
+
+	nav_row.append(
+		InlineKeyboardButton(
+			f"📄 {page + 1}/{pages}",
+			callback_data = f"/usr_pg:{page}"
+		)
+	)
+
+	if page < pages - 1:
+		nav_row.append(
+			InlineKeyboardButton(
+				"Next ▶️",
+				callback_data = f"/usr_pg:{page + 1}"
+			)
+		)
+
+	users_keyboard = InlineKeyboardMarkup([nav_row])
+	return users_keyboard
+
 def create_c_dws_user_keyboard(dws: dict):
 	keyboad_dws = [
 		InlineKeyboardMarkup(
