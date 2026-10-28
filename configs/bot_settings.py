@@ -22,7 +22,13 @@ logger_names = [
 	("links", INFO, log_links)
 ]
 
-warning_for_banning = int(os.environ.get('WARNING_BANNING',4))
+# flood guard: FLOOD_MESSAGE_LIMIT messages in a row, each less than
+# FLOOD_WINDOW_SECONDS after the previous one, take one strike; a chat that
+# collects WARNING_BANNING strikes is banned. The list/paging interface makes
+# one burst of fast taps normal browsing, so a strike needs a real flood.
+flood_window_seconds = int(os.environ.get('FLOOD_WINDOW_SECONDS',4)) #seconds
+flood_message_limit = int(os.environ.get('FLOOD_MESSAGE_LIMIT',12))
+warning_for_banning = int(os.environ.get('WARNING_BANNING',6))
 user_session = "my_account"
 user_errors = int(os.environ.get('USER_ERRORS'))
 bunker_channel = int(os.environ.get('BUNKER_CHANNEL'))

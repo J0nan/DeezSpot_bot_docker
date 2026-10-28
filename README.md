@@ -68,7 +68,9 @@ Docker Variables:
   - 3 -> Test Mode (No zip).
   - 4 -> Cool Mode (No zip).
 
-- **WARNING_BANNING**: (default: 4) number of flooding messaging when to ban a user.
+- **WARNING_BANNING**: (default: 6) number of flood strikes a user collects before being banned.
+- **FLOOD_WINDOW_SECONDS**: (default: 4) a message that reaches the bot less than this many seconds after the user's previous one counts as flooding. Any slower message clears the burst.
+- **FLOOD_MESSAGE_LIMIT**: (default: 12) flooding messages in a burst before the user gets one warning strike. Paging through the search results is normal browsing, so the burst has to be a real flood.
 
 - **USER_ERRORS**: (MANDATORY) Chat id where to send users errors.
 

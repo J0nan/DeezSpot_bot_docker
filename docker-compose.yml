@@ -6,6 +6,8 @@ services:
     environment:
       - MODE_BOT:=
       - WARNING_BANNING=
+      - FLOOD_WINDOW_SECONDS=
+      - FLOOD_MESSAGE_LIMIT=
       - USER_ERRORS:=
       - BUNKER_CHANNEL=
       - OWL_CHANNEL:=

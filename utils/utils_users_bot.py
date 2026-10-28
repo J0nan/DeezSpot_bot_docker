@@ -1,7 +1,10 @@
 #!/usr/bin/python3
 
-from datetime import datetime
-from configs.bot_settings import root_ids, warning_for_banning
+from datetime import datetime, timezone
+from configs.bot_settings import (
+	root_ids, warning_for_banning,
+	flood_window_seconds, flood_message_limit
+)
 
 from configs.customs import (
 	banning_msg1, banning_msg2,
@@ -85,34 +88,50 @@ def users_set_cache(chat_id, users_data):
 def user_setting_save_db(chat_id, user_data):
 	update_users_settings(user_data, chat_id)
 
-def check_flood(date, user_data, chat_id):
+def check_flood(user_data, chat_id, date = None):
+	# Rate guard of one chat. Messages that follow each other inside
+	# flood_window_seconds build a burst; one burst of flood_message_limit
+	# messages takes a strike and clears the burst, and warning_for_banning
+	# strikes ban the chat.
 	if chat_id in root_ids:
 		return
 
+	# the clock is when the update reached the bot, never the date written on
+	# the message: a callback carries the age of the message its buttons sit
+	# on, so an hour-old result card tapped five times in a second used to
+	# look like five messages that were all hours apart
+	date = datetime.now(timezone.utc) if date is None else date
 	last_message = user_data['last_message']
 
+	user_data['last_message'] = date
+
 	if not last_message:
-		user_data['last_message'] = date
 		return
 
-	user_data['last_message'] = date
-	time_passed = (date - last_message).seconds
+	# total_seconds(): timedelta.seconds is only the sub-day remainder, so a
+	# gap of one day and two seconds used to be read as a two second gap and
+	# charged as a rapid message
+	time_passed = (date - last_message).total_seconds()
 
-	if time_passed < 4:
+	# a negative delta is an out-of-order arrival (clock skew, or a queued
+	# update losing the race against a newer one): a calm gap, not a flood
+	if 0 <= time_passed < flood_window_seconds:
 		user_data['messages_sent'] += 1
 	else:
 		user_data['messages_sent'] = 0
 
 	messages_sent = user_data['messages_sent']
 
-	if messages_sent == 3:
+	# >= instead of ==: a burst that overshoots the limit must strike, not
+	# step past the guard untouched
+	if messages_sent >= flood_message_limit:
 		user_data['messages_sent'] = 0
 		user_data['times'] += 1
 		return banning_msg1, 0
 
 	times = user_data['times']
 
-	if times == warning_for_banning:
+	if times >= warning_for_banning:
 		write_banned(chat_id)
 		return banning_msg2, 1
 

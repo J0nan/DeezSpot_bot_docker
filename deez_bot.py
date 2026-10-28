@@ -177,7 +177,10 @@ def help_check_user(chat_id, date = None, from_user = None):
 			pass
 
 		user_data = users_data[chat_id]
-		result = check_flood(date, user_data, chat_id)
+		# deliberately no date: the flood clock is when this update reached
+		# the bot, while the users_settings touch above keeps the message
+		# date because last_used is an archive field, not a rate
+		result = check_flood(user_data, chat_id)
 
 		if result:
 			msg, mode = result
@@ -189,7 +192,15 @@ def help_check_user(chat_id, date = None, from_user = None):
 
 			if mode == 1:
 				to_ban.add_chat_ids(chat_id)
-				del users_data[chat_id]
+				# reset the counters in place instead of dropping the entry:
+				# the handler that just banned this chat reads
+				# users_data[chat_id] right after this function returns (the
+				# delete used to raise KeyError on the banning message
+				# itself), and the entry keeps the chat's running downloads
+				# killable. Later updates never reach it, to_ban filters them
+				# out.
+				user_data['messages_sent'] = 0
+				user_data['times'] = 0
 
 	if not user_exist:
 		bot.send_message(
