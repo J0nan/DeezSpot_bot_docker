@@ -12,6 +12,7 @@ from configs.customs import (
 
 from helpers.db_help import select_dwsongs
 from utils.utils import get_url_path
+from utils.utils_data import expand_track_credits
 
 # Title of the old inline not-found article, kept for the card flow.
 not_found_title = "ERROR 404 :)"
@@ -26,7 +27,18 @@ __result_icons = {
 	"playlist": "📃",
 }
 
-__list_title_max = 60
+# Telegram caps an inline button label at 64 characters, the same budget its
+# callback_data gets. python-telegram-bot exports no constant for the label:
+# 13.15 has only message/caption/answer sizes, and even 20+'s
+# InlineKeyboardButtonLimit carries just MIN/MAX_CALLBACK_DATA. So the budget
+# is named once here. The icon and its space are charged 3 of the 64, since
+# Telegram counts a non-BMP emoji as two units, and 1 unit stays as spare.
+__button_text_max = 64
+__list_label_max = __button_text_max - 4
+
+# when a title and its artist credit cannot both fit, the credit still keeps
+# a home: the title is cut in the MIDDLE and never squeezed below this
+__list_title_floor = 30
 
 # results are paginated, ten buttons per page
 PAGE_SIZE = 10
@@ -45,11 +57,19 @@ __list_scopes = [
 def __icon(item):
 	return __result_icons.get(item['type'], "🔎")
 
-def __shorten(title):
-	if len(title) <= __list_title_max:
-		return title
+def __middle(text, width):
+	# Cut the middle, keep both ends: the start identifies the song, the end
+	# carries the version suffix ("(Live Edition)") and the last credit.
+	if len(text) <= width:
+		return text
 
-	return title[: __list_title_max - 1] + "…"
+	if width <= 1:
+		return text[: width]
+
+	head = (width - 1) // 2
+	tail = width - 1 - head
+
+	return f"{text[: head]}…{text[len(text) - tail :]}" if tail else f"{text[: head]}…"
 
 def total_pages(items):
 	# a never-rendered empty list still reports one page, so the clamp
@@ -60,13 +80,26 @@ def page_items(items, page):
 	return items[page * PAGE_SIZE : (page + 1) * PAGE_SIZE]
 
 def __item_label(item):
-	# tracks advertise their artist right on the button
-	artist = item.get('artist')
+	# tracks advertise their artist right on the button: the complete credit
+	# list when it is known, the main artist while the page has not been
+	# looked up yet. Both the title and the credit get their chance to show.
+	title = item['title']
+	artist = item.get('artist') if item['type'] == "track" else None
 
-	if item['type'] == "track" and artist:
-		return f"{item['title']} - {artist}"
+	if not artist:
+		return __middle(title, __list_label_max)
 
-	return item['title']
+	credit = f" - {artist}"
+
+	if len(title) + len(credit) <= __list_label_max:
+		return f"{title}{credit}"
+
+	# over budget: the credit is truncated last (down to the title floor) so
+	# "who sings it" never disappears, and the title loses its middle so its
+	# version suffix stays readable at the end
+	credit = __middle(credit, min(len(credit), __list_label_max - __list_title_floor))
+
+	return f"{__middle(title, __list_label_max - len(credit))}{credit}"
 
 def list_caption(display, items, page = 0):
 	# Plain text on purpose. The caption is the header ONLY -- the
@@ -89,14 +122,19 @@ def list_caption(display, items, page = 0):
 	return f"{header} ({len(items)})"
 
 def create_keyboard_list(token, items, has_filters, scope, page = 0):
+	visible = page_items(items, page)
+	# the missing feat./collab names of the tracks about to be rendered are
+	# looked up here, once per track, and cached on the item itself
+	expand_track_credits(visible)
+
 	rows = [
 		[
 			InlineKeyboardButton(
-				f"{__icon(item)} {__shorten(__item_label(item))}",
+				f"{__icon(item)} {__item_label(item)}",
 				callback_data = f"/srl:{token}:{page * PAGE_SIZE + index}"
 			)
 		]
-		for index, item in enumerate(page_items(items, page))
+		for index, item in enumerate(visible)
 	]
 
 	pages = total_pages(items)
@@ -174,6 +212,15 @@ def __card_photo(item):
 def __card_caption(item):
 	# Plain text on purpose: titles and descriptions may contain
 	# markdown characters, and Telegram captions without parse_mode are safe.
+	# The track's artist line is composed here instead of being baked into the
+	# description: it is the one field expand_track_credits can still upgrade
+	# after the item was built, and the card has no button-length budget, so
+	# it always shows the complete title and every performer.
+	artist = item.get('artist')
+
+	if item['type'] == "track" and artist:
+		return f"{item['title']}\n\nArtist: {artist}\n{item['description']}"
+
 	return f"{item['title']}\n\n{item['description']}"
 
 def __contextual_row(token, item):
@@ -308,6 +355,10 @@ def edit_list(bot, chat_id, message_id, token, items, display, has_filters, scop
 
 def edit_card(bot, chat_id, message_id, token, items, index, user_data):
 	item = items[index]
+	# a card can be reached without its page ever having been rendered
+	# (contextual jumps, an old message), so the credit list is upgraded here
+	# too -- and it is the untruncated copy the caption shows
+	expand_track_credits([item])
 	reply_markup = create_keyboard_result(
 		token, items, index, user_data
 	)

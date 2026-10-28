@@ -2,7 +2,7 @@
 
 from deezloader.easy_spoty import Spo
 from configs.set_configs import SetConfigs
-from deezloader.exceptions import NoDataApi
+from deezloader.exceptions import NoDataApi, QuotaExceeded
 from deezloader.libutils.utils import get_ids
 from utils.utils import my_round
 from deezloader.deezloader.dee_api import API as deezer_api
@@ -209,6 +209,53 @@ def album_spo_data(link, conv: bool):
 		duration, link
 	)
 
+def __artist_names(data):
+	# Deezer's search/chart pages name only the MAIN artist; the full credit
+	# list (features, collabs, remix producers) lives in the track and album
+	# objects' "contributors". Keep the entries Deezer types as artists, in
+	# payload order and deduplicated by name (the same artist can appear as
+	# both Main and Featured), and fall back to the main artist for a payload
+	# with no contributors at all.
+	names = []
+
+	for contributor in data.get('contributors') or []:
+		if type(contributor) is not dict:
+			continue
+
+		if contributor.get('type') not in (None, "artist"):
+			continue
+
+		name = contributor.get('name')
+
+		if name and name not in names:
+			names.append(name)
+
+	if names:
+		return names
+
+	artist = data.get('artist')
+
+	if type(artist) is dict and artist.get('name'):
+		return [artist['name']]
+
+	return []
+
+def __credits(data):
+	return " & ".join(__artist_names(data))
+
+def __display_title(data):
+	# The complete title, version suffix included. Deezer usually keeps the
+	# edition inside "title" already ("Galway Girl (Live)"), but some payloads
+	# carry it only in "title_version" ("Bohemian Rhapsody" + "(Live Aid)"),
+	# so show it either way and never repeat it when both hold it.
+	title = data['title'] or ""
+	version = data.get('title_version') or ""
+
+	if version and version not in title:
+		return f"{title} {version}"
+
+	return title
+
 def __item_links(data):
 	# Jump ids for the contextual row of the result card: the buttons open
 	# the bot's OWN detail card for the exact album/artist (fetched by id
@@ -227,11 +274,9 @@ def __item_links(data):
 	return links
 
 def __track_item(data, position = None, link = None):
-	artist = data.get('artist')
-	artist_name = artist['name'] if type(artist) is dict else ""
+	contributors = data.get('contributors')
 	description = (
-		f"Artist: {data['artist']['name']}" +
-		f"\nAlbum: {data['album']['title']}" +
+		f"Album: {data['album']['title']}" +
 		f"\nDuration: {my_round(data['duration'] / 60)}" +
 		f"\nRank: {data['rank']}"
 	)
@@ -242,9 +287,13 @@ def __track_item(data, position = None, link = None):
 	return {
 		"id": data['id'],
 		"type": "track",
-		"title": data['title'],
-		# the artist name feeds the list button label
-		"artist": artist_name,
+		"title": __display_title(data),
+		# the artist credit feeds the list button label and the card's
+		# Artist: line; expand_track_credits upgrades it to every performer
+		"artist": __credits(data),
+		# "full" once every performer is known: a search page only carries
+		# the main artist, so "main" marks an item still worth looking up
+		"credits": "full" if type(contributors) is list and contributors else "main",
 		"description": description,
 		"link": data['link'] if link is None else link,
 		"image": data['album']['cover_big'],
@@ -290,6 +339,31 @@ def __playlist_item(data, description):
 		"links": __item_links(data),
 	}
 
+def expand_track_credits(items):
+	# Deezer's search and chart pages name only the main artist, so the other
+	# performers of a track live one endpoint deeper: the track object. This
+	# runs over the results a page is about to RENDER -- at most one lookup per
+	# visible track -- and writes the answer back into the cached item, so
+	# paging back, re-tapping filters or opening the card never pay twice.
+	# A track whose details are unavailable simply keeps its main artist: a
+	# missing credit is never worth blocking or emptying the result list.
+	for item in items:
+		if item.get('type') != "track" or item.get('credits') == "full":
+			continue
+
+		try:
+			artists = __artist_names(deezer_api.get_track(item['id']))
+		except (NoDataApi, QuotaExceeded, KeyError, TypeError, ValueError, OSError):
+			# requests raises its network errors as OSError subclasses and a
+			# corrupt body as ValueError; either way the label stays as built
+			continue
+
+		if not artists:
+			continue
+
+		item['artist'] = " & ".join(artists)
+		item['credits'] = "full"
+
 def get_album_card(ids):
 	# Detail card behind the "Album 💽" contextual button: the exact album
 	# by Deezer id, in the same item shape the "alb: " search branch
@@ -302,7 +376,7 @@ def get_album_card(ids):
 		return __album_item(
 			data,
 			f"Tracks number: {data['nb_tracks']}" +
-			f"\nArtist: {data['artist']['name']}"
+			f"\nArtist: {__credits(data)}"
 		)
 
 	except (NoDataApi, KeyError, TypeError):
@@ -348,7 +422,7 @@ def execute_search(query: str, user_data):
 				__album_item(
 					item,
 					f"Tracks number: {item['nb_tracks']}" +
-					f"\nArtist: {item['artist']['name']}"
+					f"\nArtist: {__credits(item)}"
 				)
 				for item in data['data']
 			]
@@ -440,7 +514,7 @@ def execute_search(query: str, user_data):
 					__album_item(
 						item,
 						f"Position: {item['position']}" +
-						f"\nArtist: {item['artist']['name']}"
+						f"\nArtist: {__credits(item)}"
 					)
 					for item in data['albums']['data']
 				]
