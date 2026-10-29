@@ -43,6 +43,12 @@ __list_title_floor = 30
 # results are paginated, ten buttons per page
 PAGE_SIZE = 10
 
+# the multi-artist track card packs its named-artist buttons two per line,
+# like the other keyboards do, and caps the total so a credits wall never
+# pushes Download/Close off-screen; the caption still names them all
+__card_artist_per_row = 2
+__card_artist_max = 6
+
 # the header embeds the raw query/display; cap it so a pathological search
 # term can never push the caption over Telegram's 1024-char limit
 __list_display_max = 200
@@ -223,15 +229,50 @@ def __card_caption(item):
 
 	return f"{item['title']}\n\n{item['description']}"
 
-def __contextual_row(token, item):
-	# Jump buttons of the card: they open the bot's OWN detail card for
-	# the exact album/artist (fetched by Deezer id through /ctx), never a
-	# deezer.com URL. A "" id means the result has no such target, so the
-	# button is skipped instead of sending the user nowhere.
+def __contextual_rows(token, item):
+	# Jump buttons of the card, as keyboard rows: they open the bot's OWN
+	# detail card for the exact album/artist (fetched by Deezer id through
+	# /ctx), never a deezer.com URL. A "" id means the result has no such
+	# target, so the button is skipped instead of sending the user nowhere.
 	item_type = item['type']
 	links = item['links']
 
 	if item_type == "track":
+		artists = [
+			entry for entry in item.get('artists') or [] if entry.get('id')
+		]
+
+		if len(artists) > 1:
+			# a single "Artist 👤" jump can only ever reach the main name:
+			# once the full credit list is known, every performer gets its
+			# own button straight to its own artist card. The button budget
+			# is finite so a credits wall never buries Download/Close, but
+			# the caption above always lists every performer anyway.
+			rows = []
+
+			if links['album']:
+				rows.append([
+					InlineKeyboardButton(
+						"Album 💽",
+						callback_data = f"/ctx:{token}:album"
+					)
+				])
+
+			buttons = [
+				InlineKeyboardButton(
+					f"👤 {__middle(entry['name'], __list_label_max)}",
+					callback_data = f"/ctx:{token}:artist:{entry['id']}"
+				)
+				for entry in artists[: __card_artist_max]
+			]
+
+			rows += [
+				buttons[line:line + __card_artist_per_row]
+				for line in range(0, len(buttons), __card_artist_per_row)
+			]
+
+			return rows
+
 		targets = [
 			("Album 💽", links['album'], "album"),
 			("Artist 👤", links['artist'], "artist"),
@@ -243,18 +284,18 @@ def __contextual_row(token, item):
 		]
 
 	elif item_type == "artist":
-		return [
+		return [[
 			InlineKeyboardButton(
 				command['text'],
 				callback_data = f"/ctx:{token}:{kind}"
 			)
 			for kind, command in artist_commands_queries.items()
-		]
+		]]
 
 	else:
 		return []
 
-	return [
+	row = [
 		InlineKeyboardButton(
 			text,
 			callback_data = f"/ctx:{token}:{kind}"
@@ -262,6 +303,8 @@ def __contextual_row(token, item):
 		for text, ids, kind in targets
 		if ids
 	]
+
+	return [row] if row else []
 
 def create_keyboard_result(token, items, index, user_data):
 	item = items[index]
@@ -286,10 +329,10 @@ def create_keyboard_result(token, items, index, user_data):
 		]
 	]
 
-	contextual_row = __contextual_row(token, item)
+	contextual_rows = __contextual_rows(token, item)
 
-	if contextual_row:
-		card_keyboard.append(contextual_row)
+	if contextual_rows:
+		card_keyboard.extend(contextual_rows)
 
 	card_keyboard.append([
 		InlineKeyboardButton(

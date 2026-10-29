@@ -560,7 +560,15 @@ def handle_callback_queries(update: Update, context):
 		elif kind in ("album", "artist"):
 			# the contextual buttons jump to the bot's OWN detail card
 			# for the exact album/artist, never to a deezer.com URL
-			ids = item['links'].get(kind)
+			if kind == "artist" and len(s_data) > 2:
+				# a named-artist button of a multi-artist card carries
+				# its exact Deezer id in the callback; a tail that is
+				# not an id sits where a stale jump sat
+				ids = s_data[2] if s_data[2].isdigit() else ""
+			else:
+				# the Album and the legacy single "Artist 👤" button
+				# keep resolving through the item's stored links
+				ids = item['links'].get(kind)
 
 			if not ids:
 				# card rendered before the url-to-id change: the stale

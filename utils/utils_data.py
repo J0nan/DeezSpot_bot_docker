@@ -209,14 +209,16 @@ def album_spo_data(link, conv: bool):
 		duration, link
 	)
 
-def __artist_names(data):
+def __artist_credits(data):
 	# Deezer's search/chart pages name only the MAIN artist; the full credit
 	# list (features, collabs, remix producers) lives in the track and album
 	# objects' "contributors". Keep the entries Deezer types as artists, in
 	# payload order and deduplicated by name (the same artist can appear as
 	# both Main and Featured), and fall back to the main artist for a payload
-	# with no contributors at all.
-	names = []
+	# with no contributors at all. Every entry carries the artist id next to
+	# the name, so the track card can point each performer at its own detail
+	# card; "" marks a credit whose payload arrived without an id.
+	credits = []
 
 	for contributor in data.get('contributors') or []:
 		if type(contributor) is not dict:
@@ -227,18 +229,33 @@ def __artist_names(data):
 
 		name = contributor.get('name')
 
-		if name and name not in names:
-			names.append(name)
+		if not name or name in [entry['name'] for entry in credits]:
+			continue
 
-	if names:
-		return names
+		ids = contributor.get('id')
+
+		credits.append({
+			"id": str(ids) if ids is not None else "",
+			"name": name,
+		})
+
+	if credits:
+		return credits
 
 	artist = data.get('artist')
 
 	if type(artist) is dict and artist.get('name'):
-		return [artist['name']]
+		ids = artist.get('id')
+
+		return [{
+			"id": str(ids) if ids is not None else "",
+			"name": artist['name'],
+		}]
 
 	return []
+
+def __artist_names(data):
+	return [entry['name'] for entry in __artist_credits(data)]
 
 def __credits(data):
 	return " & ".join(__artist_names(data))
@@ -294,6 +311,10 @@ def __track_item(data, position = None, link = None):
 		# "full" once every performer is known: a search page only carries
 		# the main artist, so "main" marks an item still worth looking up
 		"credits": "full" if type(contributors) is list and contributors else "main",
+		# one {id, name} entry per known performer: the detail card builds a
+		# jump button per artist out of this list, and expand_track_credits
+		# completes it with the same lookup that completes item['artist']
+		"artists": __artist_credits(data),
 		"description": description,
 		"link": data['link'] if link is None else link,
 		"image": data['album']['cover_big'],
@@ -352,16 +373,17 @@ def expand_track_credits(items):
 			continue
 
 		try:
-			artists = __artist_names(deezer_api.get_track(item['id']))
+			credits = __artist_credits(deezer_api.get_track(item['id']))
 		except (NoDataApi, QuotaExceeded, KeyError, TypeError, ValueError, OSError):
 			# requests raises its network errors as OSError subclasses and a
 			# corrupt body as ValueError; either way the label stays as built
 			continue
 
-		if not artists:
+		if not credits:
 			continue
 
-		item['artist'] = " & ".join(artists)
+		item['artist'] = " & ".join(entry['name'] for entry in credits)
+		item['artists'] = credits
 		item['credits'] = "full"
 
 def get_album_card(ids):
