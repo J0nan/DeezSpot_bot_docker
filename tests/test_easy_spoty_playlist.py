@@ -254,12 +254,15 @@ def test_missing_optional_metadata_falls_back():
 	catalogue = ScriptedCatalogue([(details, [[make_track_entry("Song", "111", ["Artist"])]])])
 
 	with Patched(SyncCatalogue = catalogue):
-		result = easy_spoty.Spo.get_playlist(PLAYLIST_ID)
+		with PatchedSleep() as sleeper:
+			result = easy_spoty.Spo.get_playlist(PLAYLIST_ID)
 
 	assert result["owner"] == {"display_name": "Unknown"}
 	assert result["followers"] == {"total": 0}
 	assert result["images"] == []
 	assert result["tracks"]["total"] == 1
+	assert catalogue.attempts == 1
+	assert sleeper.delays == []
 
 def test_track_without_artists_gets_unknown_artist():
 	details = make_details(total_count = 1)
@@ -285,26 +288,53 @@ def test_image_without_sources_is_skipped():
 
 	assert result["images"] == [{"url": "https://i.scdn.co/image/only.jpg"}]
 
+def test_image_source_without_url_is_skipped():
+	details = make_details(total_count = 1)
+	details.images = SimpleNamespace(
+		items = [SimpleNamespace(sources = [SimpleNamespace(width = 640)])]
+	)
+	catalogue = ScriptedCatalogue([(details, [[make_track_entry("Song", "111", ["Artist"])]])])
+
+	with Patched(SyncCatalogue = catalogue):
+		result = easy_spoty.Spo.get_playlist(PLAYLIST_ID)
+
+	assert result["images"] == []
+
+def test_entry_without_item_attribute_is_skipped():
+	details = make_details(total_count = 2)
+	entries = [
+		SimpleNamespace(name = "no item here"),
+		make_track_entry("Song", "111", ["Artist"])
+	]
+	catalogue = ScriptedCatalogue([(details, [entries])])
+
+	with Patched(SyncCatalogue = catalogue):
+		result = easy_spoty.Spo.get_playlist(PLAYLIST_ID)
+
+	assert track_names(result["tracks"]["items"]) == ["Song"]
+
 def test_spotapi_error_becomes_invalid_link():
 	catalogue = ScriptedCatalogue([SpotAPIError("fetchPlaylistMetadata: missing resource")])
 
 	with Patched(SyncCatalogue = catalogue):
-		with PatchedSleep():
+		with PatchedSleep() as sleeper:
 			with _pytest_raises(InvalidLink):
 				easy_spoty.Spo.get_playlist("0000000000000000000000")
 
-	assert catalogue.attempts == easy_spoty.Spo._Spo__playlist_attempts
+	assert catalogue.attempts == 2
+	assert sleeper.delays == [1]
 	assert catalogue.all_closed is True
 
-def test_value_error_becomes_invalid_link():
+def test_value_error_is_not_retried():
 	catalogue = ScriptedCatalogue([ValueError("not a Spotify playlist")])
 
 	with Patched(SyncCatalogue = catalogue):
-		with PatchedSleep():
+		with PatchedSleep() as sleeper:
 			with _pytest_raises(InvalidLink):
 				easy_spoty.Spo.get_playlist("not-a-playlist")
 
-	assert catalogue.attempts == easy_spoty.Spo._Spo__playlist_attempts
+	assert catalogue.attempts == 1
+	assert sleeper.delays == []
 	assert catalogue.all_closed is True
 
 def test_transient_failure_is_retried():
@@ -322,7 +352,21 @@ def test_transient_failure_is_retried():
 	assert catalogue.attempts == 2
 	assert catalogue.all_closed is True
 	assert result["tracks"]["items"][0]["track"]["name"] == "Song"
-	assert sleeper.delays == [easy_spoty.Spo._Spo__playlist_backoff]
+	assert sleeper.delays == [1]
+
+def test_longest_attempt_survives_an_unknown_total():
+	short_total = make_details(total_count = 10)
+	many_items = [[make_track_entry(f"Track {index}", str(100 + index), ["Artist"]) for index in range(6)]]
+	few_items = [[make_track_entry(f"Only {index}", str(200 + index), ["Artist"]) for index in range(4)]]
+	unknown_total = make_details(total_count = None)
+	catalogue = ScriptedCatalogue([(short_total, many_items), (unknown_total, few_items)])
+
+	with Patched(SyncCatalogue = catalogue):
+		with PatchedSleep():
+			result = easy_spoty.Spo.get_playlist(PLAYLIST_ID)
+
+	assert catalogue.attempts == 2
+	assert len(result["tracks"]["items"]) == 6
 
 def test_truncated_playlist_is_refetched():
 	details = make_details(total_count = 3)
@@ -355,6 +399,7 @@ def test_truncated_playlist_keeps_the_best_result_and_warns():
 	assert track_names(result["tracks"]["items"]) == ["Only"]
 	assert result["tracks"]["total"] == 3
 	assert any("truncated" in message for message in logs.warnings)
+	assert logs.errors == []
 
 def test_partial_then_failed_attempt_keeps_the_partial_playlist():
 	details = make_details(total_count = 3)

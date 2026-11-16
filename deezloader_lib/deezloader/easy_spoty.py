@@ -28,11 +28,11 @@ except Exception:
 class Spo:
 	__error_codes = [404, 400]
 
-	# A transient outage, a rate limit or a short page used to look
-	# either like a bad link or like a smaller playlist. One bounded
-	# retry separates the two without slowing the normal path.
+	# A transient outage or a short page used to look either like a
+	# bad link or like a smaller playlist. One bounded retry
+	# separates the two without slowing the normal path.
 	__playlist_attempts = 2
-	__playlist_backoff = 2
+	__playlist_backoff = 1
 
 	@classmethod
 	def __init__(cls):
@@ -139,7 +139,15 @@ class Spo:
 		for attempt in range(1, cls.__playlist_attempts + 1):
 			try:
 				playlist, items = cls.__fetch_playlist(ids)
-			except (SpotAPIError, ValueError) as error:
+			except ValueError as error:
+				# A malformed id is rejected before any request, so a
+				# retry cannot change the answer.
+				logger.warning(
+					"Spotify playlist %s: rejected as an invalid link: %r",
+					ids, error
+				)
+				raise InvalidLink(ids)
+			except SpotAPIError as error:
 				last_error = error
 				logger.warning(
 					"Spotify playlist %s: attempt %d/%d failed: %r",
@@ -152,7 +160,7 @@ class Spo:
 				total = cls.__reported_total(playlist)
 
 				if total is None or len(items) >= total:
-					return playlist, items
+					return best
 
 				logger.warning(
 					"Spotify playlist %s: attempt %d/%d returned a truncated "
@@ -170,7 +178,10 @@ class Spo:
 			)
 			raise InvalidLink(ids)
 
-		logger.error(
+		# A playlist can stay short for reasons a retry cannot fix (an
+		# entry unavailable in this market). That is not an outage, so
+		# it is reported as a warning and the best result is returned.
+		logger.warning(
 			"Spotify playlist %s: still truncated after %d attempt(s), "
 			"returning %d of %s items",
 			ids, cls.__playlist_attempts, len(best[1]), cls.__reported_total(best[0])
