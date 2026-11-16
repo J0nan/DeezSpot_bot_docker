@@ -301,7 +301,7 @@ def test_image_source_without_url_is_skipped():
 	assert result["images"] == []
 
 def test_entry_without_item_attribute_is_skipped():
-	details = make_details(total_count = 2)
+	details = make_details(total_count = 1)
 	entries = [
 		SimpleNamespace(name = "no item here"),
 		make_track_entry("Song", "111", ["Artist"])
@@ -309,9 +309,32 @@ def test_entry_without_item_attribute_is_skipped():
 	catalogue = ScriptedCatalogue([(details, [entries])])
 
 	with Patched(SyncCatalogue = catalogue):
-		result = easy_spoty.Spo.get_playlist(PLAYLIST_ID)
+		with PatchedSleep() as sleeper:
+			result = easy_spoty.Spo.get_playlist(PLAYLIST_ID)
 
 	assert track_names(result["tracks"]["items"]) == ["Song"]
+	assert catalogue.attempts == 1
+	assert sleeper.delays == []
+
+def test_longest_attempt_wins_over_a_shorter_complete_one():
+	# Deliberate: when the playlist shrinks between attempts, the largest
+	# snapshot is returned and tracks.total keeps the reported total, so
+	# the shortfall stays visible to the caller. See the plan record.
+	details = make_details(total_count = 10)
+	longer_truncated = [[make_track_entry(f"Track {index}", str(100 + index), ["Artist"]) for index in range(6)]]
+	shorter_complete = [[make_track_entry(f"New {index}", str(200 + index), ["Artist"]) for index in range(4)]]
+	catalogue = ScriptedCatalogue([
+		(details, longer_truncated),
+		(make_details(total_count = 4), shorter_complete)
+	])
+
+	with Patched(SyncCatalogue = catalogue):
+		with PatchedSleep():
+			result = easy_spoty.Spo.get_playlist(PLAYLIST_ID)
+
+	assert catalogue.attempts == 2
+	assert len(result["tracks"]["items"]) == 6
+	assert result["tracks"]["total"] == 10
 
 def test_spotapi_error_becomes_invalid_link():
 	catalogue = ScriptedCatalogue([SpotAPIError("fetchPlaylistMetadata: missing resource")])
