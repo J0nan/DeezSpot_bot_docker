@@ -2,15 +2,17 @@
 
 """Contract tests for the SpotAPI 2 playlist mapping in deezloader.easy_spoty.
 
-The tests never touch the network: the SpotAPI client is replaced by a fake
-that yields SpotAPI 2 model objects, so the mapping from typed models to the
-spotipy-shaped dictionary consumed by utils/utils_data.py and the spotloader
-downloaders is pinned here.
+The tests never touch the network: the SpotAPI client is replaced by a scripted
+fake that yields SpotAPI 2 model objects, so the mapping from typed models to
+the spotipy-shaped dictionary consumed by utils/utils_data.py and the spotloader
+downloaders is pinned here, together with the retry, truncation and error
+behavior of Spo.get_playlist.
 
 Run as: python -m pytest tests/test_easy_spoty_playlist.py -q
      or: python tests/test_easy_spoty_playlist.py
 """
 
+import logging
 import os
 import sys
 from contextlib import contextmanager
@@ -45,13 +47,11 @@ from spotapi.models import (
 PLAYLIST_ID = "37i9dQZF1DXcBWIGoYBM5M"
 PLAYLIST_URI = f"spotify:playlist:{PLAYLIST_ID}"
 
-class FakeCatalogue:
-	"""Stand-in for spotapi.SyncCatalogue with a scoped lifetime."""
+class _Client:
+	"""One fake SyncCatalogue instance; records its own lifetime."""
 
-	def __init__(self, details = None, pages = None, error = None):
-		self.details = details
-		self.pages = pages or []
-		self.error = error
+	def __init__(self, owner):
+		self.owner = owner
 		self.closed = False
 
 	def __enter__(self):
@@ -63,29 +63,88 @@ class FakeCatalogue:
 		return False
 
 	def get_playlist(self, ids):
-		if self.error is not None:
-			raise self.error
+		self.owner.attempts += 1
+		self.owner.ids_seen.append(ids)
 
-		return self.details
+		step = self.owner.script[min(self.owner.attempts - 1, len(self.owner.script) - 1)]
+
+		if isinstance(step, BaseException):
+			raise step
+
+		self.owner.pages = step[1]
+
+		return step[0]
 
 	def get_playlist_items(self, ids):
-		for page in self.pages:
+		for page in self.owner.pages:
 			yield page
 
-class PatchedCatalogue:
-	"""Replace the SpotAPI client factory for the duration of a test."""
+class ScriptedCatalogue:
+	"""Factory standing in for spotapi.SyncCatalogue.
 
-	def __init__(self, client):
-		self.client = client
+	Each call returns a fresh client, like the real scoped client per
+	Spo.get_playlist call. ``script`` holds one step per attempt: either
+	``(details, pages)`` or an exception instance to raise.
+	"""
+
+	def __init__(self, script):
+		self.script = list(script)
+		self.attempts = 0
+		self.ids_seen = []
+		self.pages = []
+		self.clients = []
+
+	def __call__(self):
+		client = _Client(self)
+		self.clients.append(client)
+
+		return client
+
+	@property
+	def all_closed(self):
+		return all(client.closed for client in self.clients)
+
+class Patched:
+	"""Replace module attributes for the duration of a test."""
+
+	def __init__(self, **attributes):
+		self.attributes = attributes
+		self.originals = {}
 
 	def __enter__(self):
-		self.original = easy_spoty.SyncCatalogue
-		easy_spoty.SyncCatalogue = lambda: self.client
+		for name, value in self.attributes.items():
+			self.originals[name] = getattr(easy_spoty, name)
+			setattr(easy_spoty, name, value)
 
-		return self.client
+		return self
 
 	def __exit__(self, *exc_info):
-		easy_spoty.SyncCatalogue = self.original
+		for name, value in self.originals.items():
+			setattr(easy_spoty, name, value)
+
+		return False
+
+class NoSleep:
+	"""Stand-in for time.sleep inside easy_spoty; records the delays."""
+
+	def __init__(self):
+		self.delays = []
+
+	def __call__(self, seconds):
+		self.delays.append(seconds)
+
+class PatchedSleep:
+	"""Patch easy_spoty.time.sleep without replacing the whole time module."""
+
+	def __enter__(self):
+		self.sleeper = NoSleep()
+		self.original = easy_spoty.time.sleep
+		easy_spoty.time.sleep = self.sleeper
+
+		return self.sleeper
+
+	def __exit__(self, *exc_info):
+		easy_spoty.time.sleep = self.original
 
 		return False
 
@@ -128,15 +187,18 @@ def make_episode_entry(name = "An episode"):
 
 	return PlaylistEntry(item = item, uid = "uid-episode", added_at = "2024-02-02T00:00:00Z")
 
+def track_names(tracks):
+	return [entry["track"]["name"] for entry in tracks]
+
 def test_playlist_maps_to_spotipy_shape():
 	details = make_details()
 	pages = [
 		[make_track_entry("Song One", "111", ["Artist A", "Artist B"])],
 		[make_track_entry("Song Two", "222", ["Artist C"]), make_episode_entry(), PlaylistEntry(item = None)]
 	]
-	client = FakeCatalogue(details = details, pages = pages)
+	catalogue = ScriptedCatalogue([(details, pages)])
 
-	with PatchedCatalogue(client) as fake:
+	with Patched(SyncCatalogue = catalogue):
 		result = easy_spoty.Spo.get_playlist(PLAYLIST_ID)
 
 	assert result == {
@@ -167,14 +229,15 @@ def test_playlist_maps_to_spotipy_shape():
 			"next": None
 		}
 	}
-	assert fake.closed is True
+	assert catalogue.attempts == 1
+	assert catalogue.all_closed is True
 
 def test_all_items_are_collected_across_pages():
 	first_page = [make_track_entry(f"First {index}", str(100 + index), ["Artist"]) for index in range(100)]
 	second_page = [make_track_entry(f"Second {index}", str(200 + index), ["Artist"]) for index in range(100)]
-	client = FakeCatalogue(details = make_details(total_count = 200), pages = [first_page, second_page])
+	catalogue = ScriptedCatalogue([(make_details(total_count = 200), [first_page, second_page])])
 
-	with PatchedCatalogue(client):
+	with Patched(SyncCatalogue = catalogue):
 		result = easy_spoty.Spo.get_playlist(PLAYLIST_ID)
 
 	assert result["tracks"]["total"] == 200
@@ -188,9 +251,9 @@ def test_missing_optional_metadata_falls_back():
 	details.owner_v2 = None
 	details.images = None
 	details.content = None
-	client = FakeCatalogue(details = details, pages = [[make_track_entry("Song", "111", ["Artist"])]])
+	catalogue = ScriptedCatalogue([(details, [[make_track_entry("Song", "111", ["Artist"])]])])
 
-	with PatchedCatalogue(client):
+	with Patched(SyncCatalogue = catalogue):
 		result = easy_spoty.Spo.get_playlist(PLAYLIST_ID)
 
 	assert result["owner"] == {"display_name": "Unknown"}
@@ -198,19 +261,154 @@ def test_missing_optional_metadata_falls_back():
 	assert result["images"] == []
 	assert result["tracks"]["total"] == 1
 
-def test_spotapi_error_becomes_invalid_link():
-	client = FakeCatalogue(error = SpotAPIError("fetchPlaylistMetadata: missing resource"))
+def test_track_without_artists_gets_unknown_artist():
+	details = make_details(total_count = 1)
+	catalogue = ScriptedCatalogue([(details, [[make_track_entry("Song", "111", [])]])])
 
-	with PatchedCatalogue(client):
-		with _pytest_raises(InvalidLink):
-			easy_spoty.Spo.get_playlist("0000000000000000000000")
+	with Patched(SyncCatalogue = catalogue):
+		result = easy_spoty.Spo.get_playlist(PLAYLIST_ID)
+
+	assert result["tracks"]["items"][0]["track"]["artists"] == [{"name": "Unknown"}]
+
+def test_image_without_sources_is_skipped():
+	details = make_details(total_count = 1)
+	details.images = SimpleNamespace(
+		items = [
+			SimpleNamespace(sources = []),
+			SimpleNamespace(sources = [SimpleNamespace(url = "https://i.scdn.co/image/only.jpg", width = 300)])
+		]
+	)
+	catalogue = ScriptedCatalogue([(details, [[make_track_entry("Song", "111", ["Artist"])]])])
+
+	with Patched(SyncCatalogue = catalogue):
+		result = easy_spoty.Spo.get_playlist(PLAYLIST_ID)
+
+	assert result["images"] == [{"url": "https://i.scdn.co/image/only.jpg"}]
+
+def test_spotapi_error_becomes_invalid_link():
+	catalogue = ScriptedCatalogue([SpotAPIError("fetchPlaylistMetadata: missing resource")])
+
+	with Patched(SyncCatalogue = catalogue):
+		with PatchedSleep():
+			with _pytest_raises(InvalidLink):
+				easy_spoty.Spo.get_playlist("0000000000000000000000")
+
+	assert catalogue.attempts == easy_spoty.Spo._Spo__playlist_attempts
+	assert catalogue.all_closed is True
 
 def test_value_error_becomes_invalid_link():
-	client = FakeCatalogue(error = ValueError("not a Spotify playlist"))
+	catalogue = ScriptedCatalogue([ValueError("not a Spotify playlist")])
 
-	with PatchedCatalogue(client):
-		with _pytest_raises(InvalidLink):
-			easy_spoty.Spo.get_playlist("not-a-playlist")
+	with Patched(SyncCatalogue = catalogue):
+		with PatchedSleep():
+			with _pytest_raises(InvalidLink):
+				easy_spoty.Spo.get_playlist("not-a-playlist")
+
+	assert catalogue.attempts == easy_spoty.Spo._Spo__playlist_attempts
+	assert catalogue.all_closed is True
+
+def test_transient_failure_is_retried():
+	details = make_details(total_count = 1)
+	track = make_track_entry("Song", "111", ["Artist"])
+	catalogue = ScriptedCatalogue([
+		SpotAPIError("HTTP 503 from the Spotify web player"),
+		(details, [[track]])
+	])
+
+	with Patched(SyncCatalogue = catalogue):
+		with PatchedSleep() as sleeper:
+			result = easy_spoty.Spo.get_playlist(PLAYLIST_ID)
+
+	assert catalogue.attempts == 2
+	assert catalogue.all_closed is True
+	assert result["tracks"]["items"][0]["track"]["name"] == "Song"
+	assert sleeper.delays == [easy_spoty.Spo._Spo__playlist_backoff]
+
+def test_truncated_playlist_is_refetched():
+	details = make_details(total_count = 3)
+	short = [[make_track_entry("Only", "111", ["Artist"])]]
+	full = [[
+		make_track_entry("Only", "111", ["Artist"]),
+		make_track_entry("Two", "222", ["Artist"]),
+		make_track_entry("Three", "333", ["Artist"])
+	]]
+	catalogue = ScriptedCatalogue([(details, short), (details, full)])
+
+	with Patched(SyncCatalogue = catalogue):
+		with PatchedSleep():
+			result = easy_spoty.Spo.get_playlist(PLAYLIST_ID)
+
+	assert catalogue.attempts == 2
+	assert track_names(result["tracks"]["items"]) == ["Only", "Two", "Three"]
+
+def test_truncated_playlist_keeps_the_best_result_and_warns():
+	details = make_details(total_count = 3)
+	short = [[make_track_entry("Only", "111", ["Artist"])]]
+	catalogue = ScriptedCatalogue([(details, short), (details, short)])
+
+	with Patched(SyncCatalogue = catalogue):
+		with PatchedSleep():
+			with LogCapture() as logs:
+				result = easy_spoty.Spo.get_playlist(PLAYLIST_ID)
+
+	assert catalogue.attempts == 2
+	assert track_names(result["tracks"]["items"]) == ["Only"]
+	assert result["tracks"]["total"] == 3
+	assert any("truncated" in message for message in logs.warnings)
+
+def test_partial_then_failed_attempt_keeps_the_partial_playlist():
+	details = make_details(total_count = 3)
+	short = [[make_track_entry("Only", "111", ["Artist"])]]
+	catalogue = ScriptedCatalogue([
+		(details, short),
+		SpotAPIError("HTTP 429 Too Many Requests")
+	])
+
+	with Patched(SyncCatalogue = catalogue):
+		with PatchedSleep():
+			result = easy_spoty.Spo.get_playlist(PLAYLIST_ID)
+
+	assert catalogue.attempts == 2
+	assert track_names(result["tracks"]["items"]) == ["Only"]
+
+class LogCapture:
+	"""Capture the warnings and errors emitted by easy_spoty's logger."""
+
+	def __enter__(self):
+		self.warnings = []
+		self.errors = []
+		self.handler = logging.Handler()
+		self.handler.emit = self._emit
+		self.logger = easy_spoty.logger
+		self.previous_level = self.logger.level
+		self.logger.addHandler(self.handler)
+		self.logger.setLevel(logging.DEBUG)
+
+		return self
+
+	def _emit(self, record):
+		if record.levelno >= logging.ERROR:
+			self.errors.append(record.getMessage())
+		else:
+			self.warnings.append(record.getMessage())
+
+	def __exit__(self, *exc_info):
+		self.logger.removeHandler(self.handler)
+		self.logger.setLevel(self.previous_level)
+
+		return False
+
+def test_failure_after_retries_is_logged_as_an_error():
+	catalogue = ScriptedCatalogue([SpotAPIError("HTTP 503 from the Spotify web player")])
+
+	with Patched(SyncCatalogue = catalogue):
+		with PatchedSleep():
+			with LogCapture() as logs:
+				with _pytest_raises(InvalidLink):
+					easy_spoty.Spo.get_playlist(PLAYLIST_ID)
+
+	assert len(logs.errors) == 1
+	assert PLAYLIST_ID in logs.errors[0]
 
 def _run_standalone():
 	failures = 0

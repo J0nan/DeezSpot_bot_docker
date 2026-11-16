@@ -1,11 +1,15 @@
 #!/usr/bin/python3
 
+import logging
+import time
 from spotipy import Spotify
 from .exceptions import InvalidLink
 from spotapi import SyncCatalogue, SpotAPIError
 from spotipy.exceptions import SpotifyException
 from spotipy.cache_handler import CacheFileHandler
 from spotipy.oauth2 import SpotifyClientCredentials
+
+logger = logging.getLogger(__name__)
 
 try:
     # Prefer project config when running inside the bot
@@ -23,6 +27,12 @@ except Exception:
 
 class Spo:
 	__error_codes = [404, 400]
+
+	# A transient outage, a rate limit or a short page used to look
+	# either like a bad link or like a smaller playlist. One bounded
+	# retry separates the two without slowing the normal path.
+	__playlist_attempts = 2
+	__playlist_backoff = 2
 
 	@classmethod
 	def __init__(cls):
@@ -50,7 +60,7 @@ class Spo:
 
 	@staticmethod
 	def __map_playlist_track(entry):
-		item = entry.item
+		item = getattr(entry, 'item', None)
 		uri = getattr(item, 'uri', None) or ''
 
 		if not uri.startswith('spotify:track:'):
@@ -84,7 +94,7 @@ class Spo:
 	def __map_playlist_images(details):
 		sources = []
 
-		for image in (getattr(details.images, 'items', None) or []):
+		for image in (getattr(getattr(details, 'images', None), 'items', None) or []):
 			c_sources = getattr(image, 'sources', None) or []
 
 			if c_sources:
@@ -92,29 +102,88 @@ class Spo:
 					c_sources,
 					key = lambda source: getattr(source, 'width', 0) or 0
 				)
-				sources.append({'url': big.url})
+				url = getattr(big, 'url', None)
+
+				if url:
+					sources.append({'url': url})
 
 		return sources
+
+	@staticmethod
+	def __reported_total(playlist):
+		content = getattr(playlist, 'content', None)
+
+		return getattr(content, 'total_count', None)
+
+	@classmethod
+	def __fetch_playlist(cls, ids):
+		# One scoped client per call: the runner owns an event loop in
+		# the calling thread, so it must not be shared between the
+		# download worker threads. The item pages are consumed inside
+		# the scope because the generator borrows it.
+		with SyncCatalogue() as client:
+			playlist = client.get_playlist(ids)
+			items = [
+				entry
+				for page in client.get_playlist_items(ids)
+				for entry in page
+			]
+
+		return playlist, items
+
+	@classmethod
+	def __fetch_playlist_with_retry(cls, ids):
+		best = None
+		last_error = None
+
+		for attempt in range(1, cls.__playlist_attempts + 1):
+			try:
+				playlist, items = cls.__fetch_playlist(ids)
+			except (SpotAPIError, ValueError) as error:
+				last_error = error
+				logger.warning(
+					"Spotify playlist %s: attempt %d/%d failed: %r",
+					ids, attempt, cls.__playlist_attempts, error
+				)
+			else:
+				if best is None or len(items) > len(best[1]):
+					best = (playlist, items)
+
+				total = cls.__reported_total(playlist)
+
+				if total is None or len(items) >= total:
+					return playlist, items
+
+				logger.warning(
+					"Spotify playlist %s: attempt %d/%d returned a truncated "
+					"playlist (%d of %s items)",
+					ids, attempt, cls.__playlist_attempts, len(items), total
+				)
+
+			if attempt < cls.__playlist_attempts:
+				time.sleep(cls.__playlist_backoff)
+
+		if best is None:
+			logger.error(
+				"Spotify playlist %s: giving up after %d attempt(s): %r",
+				ids, cls.__playlist_attempts, last_error
+			)
+			raise InvalidLink(ids)
+
+		logger.error(
+			"Spotify playlist %s: still truncated after %d attempt(s), "
+			"returning %d of %s items",
+			ids, cls.__playlist_attempts, len(best[1]), cls.__reported_total(best[0])
+		)
+
+		return best
 
 	@classmethod
 	def get_playlist(cls, ids):
 		# SpotAPI 2 serves the whole playlist (no 100-track cap) through
 		# anonymous web-player queries. Its typed models are mapped back
 		# to the spotipy shape the downloaders already consume.
-		try:
-			# One scoped client per call: the runner owns an event loop
-			# in the calling thread, so it must not be shared between
-			# the download worker threads. The item pages are consumed
-			# inside the scope because the generator borrows it.
-			with SyncCatalogue() as client:
-				playlist = client.get_playlist(ids)
-				items = [
-					entry
-					for page in client.get_playlist_items(ids)
-					for entry in page
-				]
-		except (SpotAPIError, ValueError):
-			raise InvalidLink(ids)
+		playlist, items = cls.__fetch_playlist_with_retry(ids)
 
 		mapped_tracks = [
 			mapped for mapped in map(cls.__map_playlist_track, items)
@@ -122,8 +191,7 @@ class Spo:
 		]
 
 		owner = getattr(getattr(playlist, 'owner_v2', None), 'data', None)
-		content = getattr(playlist, 'content', None)
-		total = getattr(content, 'total_count', None)
+		total = cls.__reported_total(playlist)
 
 		if total is None:
 			total = len(mapped_tracks)
