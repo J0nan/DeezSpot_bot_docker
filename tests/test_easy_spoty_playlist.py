@@ -480,10 +480,13 @@ def test_failure_after_retries_is_logged_as_an_error():
 
 def _run_standalone():
 	failures = 0
+	executed = 0
 
 	for name, test in sorted(globals().items()):
 		if not name.startswith("test_") or not callable(test):
 			continue
+
+		executed += 1
 
 		try:
 			test()
@@ -492,6 +495,10 @@ def _run_standalone():
 			print(f"FAIL {name}: {error!r}")
 		else:
 			print(f"PASS {name}")
+
+	if not executed:
+		print("FAIL: no tests were collected")
+		return 1
 
 	print(f"{failures} failure(s)")
 

@@ -21,7 +21,26 @@ def __detect_mime(image):
 	if image[:4] == b"\x89PNG":
 		return "image/png"
 
+	if image[:6] in (b"GIF87a", b"GIF89a"):
+		return "image/gif"
+
+	if image[:4] == b"RIFF" and image[8:12] == b"WEBP":
+		return "image/webp"
+
 	return "application/octet-stream"
+
+def __detect_depth(image):
+	if image[:4] == b"\x89PNG":
+		# PNG colour types: 0 grey, 2 RGB, 3 palette, 4 grey+alpha, 6 RGBA.
+		colour_type = image[25] if len(image) > 25 else 0
+		channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}.get(colour_type, 0)
+
+		return 8 * channels
+
+	if image[:2] == b"\xff\xd8":
+		return 24
+
+	return 0
 
 def __detect_size(image):
 	if image[:4] == b"\x89PNG":
@@ -30,44 +49,69 @@ def __detect_size(image):
 
 		return width, height
 
+	return __detect_jpeg_size(image)
+
+def __detect_jpeg_size(image):
 	# Walk the JPEG segments until the frame header carries the size.
 	index = 2
 
-	while index + 9 < len(image):
+	while index + 1 < len(image):
 		if image[index] != 0xFF:
 			index += 1
 
 			continue
 
+		# Any number of 0xFF fill bytes may precede a marker.
+		while index + 1 < len(image) and image[index + 1] == 0xFF:
+			index += 1
+
+		if index + 1 >= len(image):
+			break
+
 		marker = image[index + 1]
+		index += 2
+
+		# Standalone markers carry no length field.
+		if marker in (
+			0x01, 0xD0, 0xD1, 0xD2, 0xD3,
+			0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9
+		):
+			continue
+
+		if index + 2 > len(image):
+			break
+
+		segment = int.from_bytes(image[index:index + 2], "big")
+
+		if segment < 2:
+			break
 
 		if marker in (
 			0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6,
 			0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF
 		):
-			height = int.from_bytes(image[index + 5:index + 7], "big")
-			width = int.from_bytes(image[index + 7:index + 9], "big")
+			if index + 7 > len(image):
+				break
+
+			height = int.from_bytes(image[index + 3:index + 5], "big")
+			width = int.from_bytes(image[index + 5:index + 7], "big")
 
 			return width, height
 
-		segment = int.from_bytes(image[index + 2:index + 4], "big")
-
-		if segment < 2:
-			break
-
-		index += 2 + segment
+		index += segment
 
 	return 0, 0
 
 def __picture_block(image):
 	# A FLAC picture block without a mime type and dimensions is invalid:
 	# players drop the artwork even though the bytes are present, which is
-	# why ogg and flac files looked coverless while mp3 worked.
+	# why ogg and flac files looked coverless while mp3 worked. Formats
+	# whose size cannot be read keep 0x0 (unknown) but still carry a mime.
 	images = Picture()
 	images.type = 3
 	images.mime = __detect_mime(image)
 	images.width, images.height = __detect_size(image)
-	images.depth = 24
+	images.depth = __detect_depth(image)
 	images.data = image
 
 	return images
