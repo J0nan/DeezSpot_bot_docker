@@ -13,6 +13,7 @@ Run as: python -m pytest tests/test_taggers_cover.py -q
 
 import base64
 import datetime
+import logging
 import os
 import struct
 import sys
@@ -80,6 +81,33 @@ def track_stub(image, file_format):
 		setattr(track, key, value)
 
 	return track
+
+class LogCapture:
+	"""Capture the warnings emitted by the tagger logger."""
+
+	def __enter__(self):
+		self.warnings = []
+		self.errors = []
+		self.handler = logging.Handler()
+		self.handler.emit = self._emit
+		self.logger = taggers.logger
+		self.previous_level = self.logger.level
+		self.logger.addHandler(self.handler)
+		self.logger.setLevel(logging.DEBUG)
+
+		return self
+
+	def _emit(self, record):
+		if record.levelno >= logging.ERROR:
+			self.errors.append(record.getMessage())
+		else:
+			self.warnings.append(record.getMessage())
+
+	def __exit__(self, *exc_info):
+		self.logger.removeHandler(self.handler)
+		self.logger.setLevel(self.previous_level)
+
+		return False
 
 def test_jpeg_block_carries_mime_and_dimensions():
 	image = make_jpeg(640, 480)
@@ -247,6 +275,95 @@ def test_jpeg_with_extra_segments_is_measured():
 	picture = Picture(picture_block(image).write())
 
 	assert (picture.width, picture.height) == (1920, 1080)
+
+def test_writer_skips_the_picture_when_the_image_is_empty():
+	calls = {"added": 0}
+
+	class FakeFlac:
+		def __init__(self, song):
+			self.values = {}
+
+		def delete(self):
+			pass
+
+		def clear_pictures(self):
+			pass
+
+		def add_picture(self, picture):
+			calls["added"] += 1
+
+		def __setitem__(self, key, value):
+			pass
+
+		def save(self):
+			pass
+
+	original = taggers.FLAC
+	taggers.FLAC = FakeFlac
+
+	try:
+		with LogCapture() as logs:
+			taggers.write_tags(track_stub(b"", ".flac"))
+	finally:
+		taggers.FLAC = original
+
+	assert calls["added"] == 0
+	assert any("no cover art" in message for message in logs.warnings)
+
+def test_ogg_writer_skips_the_picture_when_the_image_is_empty():
+	written = {}
+
+	class FakeOgg:
+		def __init__(self, song):
+			pass
+
+		def __setitem__(self, key, value):
+			written[key] = value
+
+		def save(self):
+			pass
+
+	original = taggers.OggVorbis
+	taggers.OggVorbis = FakeOgg
+
+	try:
+		with LogCapture() as logs:
+			taggers.write_tags(track_stub(b"", ".ogg"))
+	finally:
+		taggers.OggVorbis = original
+
+	assert "metadata_block_picture" not in written
+	assert any("no cover art" in message for message in logs.warnings)
+
+def test_mp3_writer_labels_a_png_cover_correctly():
+	image = make_png(16, 16)
+	frames = []
+
+	class FakeID3:
+		def __init__(self, song = None):
+			self.song = song
+
+		def delete(self):
+			pass
+
+		def add(self, frame):
+			frames.append(frame)
+
+		def save(self, song = None, v2_version = 3):
+			pass
+
+	original = taggers.ID3
+	taggers.ID3 = FakeID3
+
+	try:
+		taggers.write_tags(track_stub(image, ".mp3"))
+	finally:
+		taggers.ID3 = original
+
+	apic = [frame for frame in frames if getattr(frame, "mime", None)]
+	assert len(apic) == 1
+	assert apic[0].mime == "image/png"
+	assert apic[0].data == image
 
 def _run_standalone():
 	failures = 0

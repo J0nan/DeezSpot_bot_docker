@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+import logging
 from base64 import b64encode
 from mutagen.flac import FLAC, Picture
 from mutagen.oggvorbis import OggVorbis
@@ -13,6 +14,8 @@ from mutagen.id3 import (
 	TPE1, TYER, TDAT, TPOS, TPE2,
 	TPUB, TCOP, TXXX, TCOM, IPLS
 )
+
+logger = logging.getLogger(__name__)
 
 def __detect_mime(image):
 	if image[:2] == b"\xff\xd8":
@@ -121,7 +124,11 @@ def __write_flac(song, data):
 	tag = FLAC(song)
 	tag.delete()
 	tag.clear_pictures()
-	tag.add_picture(__picture_block(data['image']))
+
+	if data['image']:
+		tag.add_picture(__picture_block(data['image']))
+	else:
+		logger.warning("no cover art available for %s", song)
 	tag['lyrics'] = data['lyric']
 	tag['artist'] = data['artist']
 	tag['title'] = data['music']
@@ -149,14 +156,17 @@ def __write_mp3(song, data):
 	except ID3NoHeaderError:
 		audio = ID3()
 
-	audio.add(
-		APIC(
-			mime = "image/jpeg",
-			type = 3,
-			desc = "album front cover",
-			data = data['image']
+	if data['image']:
+		audio.add(
+			APIC(
+				mime = __detect_mime(data['image']),
+				type = 3,
+				desc = "album front cover",
+				data = data['image']
+			)
 		)
-	)
+	else:
+		logger.warning("no cover art available for %s", song)
 
 	audio.add(
 		COMM(
@@ -297,11 +307,12 @@ def __write_mp3(song, data):
 def __write_ogg(song, data):
 	tag = OggVorbis(song)
 
-	pic_data = b64encode(
-		__picture_block(data['image']).write()
-	).decode("ascii")
-
-	tag['metadata_block_picture'] = pic_data
+	if data['image']:
+		tag['metadata_block_picture'] = b64encode(
+			__picture_block(data['image']).write()
+		).decode("ascii")
+	else:
+		logger.warning("no cover art available for %s", song)
 	#tag['lyrics'] = data['lyric']
 	tag['artist'] = data['artist']
 	tag['title'] = data['music']
