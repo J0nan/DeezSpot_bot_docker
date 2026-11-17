@@ -6,13 +6,13 @@ from .__utils__ import artist_sort
 from requests import get as req_get
 from ..libutils.utils import convert_to_date
 from ..libutils.others_settings import header
+from .cover_art import fetch_cover
 
 from ..exceptions import (
 	NoDataApi, QuotaExceeded, TrackNotFound
 )
 
 class API:
-	__cover_fallback_sizes = ("1000x1000", "500x500")
 
 	@classmethod
 	def __init__(cls):
@@ -187,28 +187,8 @@ class API:
 		return image_url
 
 	@classmethod
-	def __img_is_valid(cls, image):
-		return bool(image) and len(image) != 13
-
-	@classmethod
 	def choose_img(cls, md5_image, size = "1200x1200"):
-		c_sizes = list(
-			dict.fromkeys((size, *cls.__cover_fallback_sizes))
-		)
-
-		for c_size in c_sizes:
-			image = req_get(cls.get_img_url(md5_image, c_size)).content
-
-			if cls.__img_is_valid(image):
-				return image
-
-		for c_size in c_sizes:
-			image = req_get(cls.get_img_url("", c_size)).content
-
-			if cls.__img_is_valid(image):
-				return image
-
-		return b""
+		return fetch_cover(md5_image, size = size).data
 
 	@classmethod
 	def tracking(cls, ids, album = False) -> dict:
