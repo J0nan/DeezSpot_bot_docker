@@ -47,8 +47,8 @@ def make_jpeg(width, height):
 
 	return b"\xff\xd8" + sof + b"\xff\xd9"
 
-def make_png(width, height):
-	ihdr = struct.pack(">II", width, height) + b"\x08\x06\x00\x00\x00"
+def make_png(width, height, bit_depth = 8, colour_type = 6):
+	ihdr = struct.pack(">II", width, height) + bytes([bit_depth, colour_type, 0, 0, 0])
 
 	return b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + ihdr
 
@@ -113,15 +113,27 @@ def test_gif_and_webp_are_recognised_without_dimensions():
 	gif = b"GIF89a" + b"\x00" * 20
 	webp = b"RIFF" + b"\x00" * 4 + b"WEBP" + b"\x00" * 20
 
-	assert Picture(picture_block(gif).write()).mime == "image/gif"
-	assert Picture(picture_block(webp).write()).mime == "image/webp"
-	assert (Picture(picture_block(gif).write()).width, Picture(picture_block(gif).write()).height) == (0, 0)
+	gif_picture = Picture(picture_block(gif).write())
+	webp_picture = Picture(picture_block(webp).write())
+
+	assert gif_picture.mime == "image/gif"
+	assert webp_picture.mime == "image/webp"
+	assert (gif_picture.width, gif_picture.height) == (0, 0)
+	assert (webp_picture.width, webp_picture.height) == (0, 0)
+	assert gif_picture.depth == 0
+	assert webp_picture.depth == 0
 
 def test_png_depth_follows_the_colour_type():
-	# make_png writes colour type 6 (RGBA), so 4 channels at 8 bits.
+	# Default fixture is colour type 6 (RGBA) at 8 bits, so 4 channels.
 	picture = Picture(picture_block(make_png(64, 64)).write())
 
 	assert picture.depth == 32
+
+def test_png_depth_follows_the_bit_depth():
+	# 16-bit RGB: 3 channels at 16 bits per channel.
+	picture = Picture(picture_block(make_png(64, 64, bit_depth = 16, colour_type = 2)).write())
+
+	assert picture.depth == 48
 
 def test_jpeg_depth_is_24():
 	picture = Picture(picture_block(make_jpeg(64, 64)).write())

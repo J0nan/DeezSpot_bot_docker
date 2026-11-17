@@ -33,9 +33,10 @@ def __detect_depth(image):
 	if image[:4] == b"\x89PNG":
 		# PNG colour types: 0 grey, 2 RGB, 3 palette, 4 grey+alpha, 6 RGBA.
 		colour_type = image[25] if len(image) > 25 else 0
+		bit_depth = image[24] if len(image) > 24 else 8
 		channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}.get(colour_type, 0)
 
-		return 8 * channels
+		return bit_depth * channels
 
 	if image[:2] == b"\xff\xd8":
 		return 24
