@@ -14,14 +14,69 @@ from mutagen.id3 import (
 	TPUB, TCOP, TXXX, TCOM, IPLS
 )
 
+def __detect_mime(image):
+	if image[:2] == b"\xff\xd8":
+		return "image/jpeg"
+
+	if image[:4] == b"\x89PNG":
+		return "image/png"
+
+	return "application/octet-stream"
+
+def __detect_size(image):
+	if image[:4] == b"\x89PNG":
+		width = int.from_bytes(image[16:20], "big")
+		height = int.from_bytes(image[20:24], "big")
+
+		return width, height
+
+	# Walk the JPEG segments until the frame header carries the size.
+	index = 2
+
+	while index + 9 < len(image):
+		if image[index] != 0xFF:
+			index += 1
+
+			continue
+
+		marker = image[index + 1]
+
+		if marker in (
+			0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6,
+			0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF
+		):
+			height = int.from_bytes(image[index + 5:index + 7], "big")
+			width = int.from_bytes(image[index + 7:index + 9], "big")
+
+			return width, height
+
+		segment = int.from_bytes(image[index + 2:index + 4], "big")
+
+		if segment < 2:
+			break
+
+		index += 2 + segment
+
+	return 0, 0
+
+def __picture_block(image):
+	# A FLAC picture block without a mime type and dimensions is invalid:
+	# players drop the artwork even though the bytes are present, which is
+	# why ogg and flac files looked coverless while mp3 worked.
+	images = Picture()
+	images.type = 3
+	images.mime = __detect_mime(image)
+	images.width, images.height = __detect_size(image)
+	images.depth = 24
+	images.data = image
+
+	return images
+
 def __write_flac(song, data):
 	tag = FLAC(song)
 	tag.delete()
-	images = Picture()
-	images.type = 3
-	images.data = data['image']
 	tag.clear_pictures()
-	tag.add_picture(images)
+	tag.add_picture(__picture_block(data['image']))
 	tag['lyrics'] = data['lyric']
 	tag['artist'] = data['artist']
 	tag['title'] = data['music']
@@ -196,12 +251,9 @@ def __write_mp3(song, data):
 
 def __write_ogg(song, data):
 	tag = OggVorbis(song)
-	images = Picture()
-	images.type = 3
-	images.data = data['image']
 
 	pic_data = b64encode(
-		images.write()
+		__picture_block(data['image']).write()
 	).decode("ascii")
 
 	tag['metadata_block_picture'] = pic_data
