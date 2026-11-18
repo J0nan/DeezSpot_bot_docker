@@ -16,8 +16,10 @@ an ID3-only mp3), so the tag probes run against the real parsers. The DB tests
 run on a throwaway sqlite file and never touch DB/deez_bot.db.
 
 The last section pins the helpers.download_help cache seams: a cover_ok == 0
-row is dropped and downloaded again, a NULL (legacy) or 1 row is served
-exactly as before, and every upload records the presence of artwork.
+row is refreshed in place (its stored file_id stays servable until the
+replacement upload succeeds), a NULL (legacy) or 1 row is served exactly as
+before, a cooldown bounds retries for permanently coverless content, and every
+upload records the presence of artwork in the delivered file itself.
 
 Run as: .venv\\Scripts\\python -m pytest tests/test_retag_and_db.py -q
      or: .venv\\Scripts\\python tests/test_retag_and_db.py
@@ -31,6 +33,7 @@ import sqlite3
 import struct
 import sys
 import tempfile
+import time
 import types
 from contextlib import contextmanager
 from types import SimpleNamespace
@@ -221,6 +224,36 @@ def test_mp3_without_an_id3_header_is_never_complete():
 
 		assert taggers.check_track(track_stub(bare, ".mp3")) is False
 		assert taggers.has_complete_tags(track_stub(bare, ".mp3")) is False
+
+def test_has_picture_is_a_public_probe_and_min_complete_tags_is_fourteen():
+	with song_dir() as directory:
+		covered = os.path.join(directory, "covered.flac")
+		coverless = os.path.join(directory, "coverless.flac")
+		write_flac(covered, 15, True)
+		write_flac(coverless, 15, False)
+
+		assert taggers.MIN_COMPLETE_TAGS == 14
+		# a Track-like object and a bare path both answer the same question
+		assert taggers.has_picture(track_stub(covered, ".flac")) is True
+		assert taggers.has_picture(covered) is True
+		assert taggers.has_picture(track_stub(coverless, ".flac")) is False
+		assert taggers.has_picture(coverless) is False
+		# the private probe existing callers use keeps working unchanged
+		assert taggers.__has_picture(FLAC(covered), ".flac") is True
+		assert taggers.__has_picture(FLAC(coverless), ".flac") is False
+
+def test_the_tag_threshold_shared_with_has_complete_tags_is_unchanged():
+	with song_dir() as directory:
+		for count in (3, 13, 14, 15):
+			song = os.path.join(directory, f"count{count}.flac")
+			write_flac(song, count, True)
+			keys = len(FLAC(song).keys())
+
+			# the answer still follows "at least MIN_COMPLETE_TAGS comments",
+			# whatever the parser reports for this synthetic stream
+			assert taggers.has_complete_tags(track_stub(song, ".flac")) == (
+				keys >= taggers.MIN_COMPLETE_TAGS
+			)
 
 # --- (b) the re-tag-only seam in both downloaders ---
 
@@ -452,6 +485,32 @@ def temp_db():
 		db.db_name = previous
 		shutil.rmtree(directory, ignore_errors = True)
 
+def count_rows(db, link):
+	connection = sqlite3.connect(db.db_name)
+
+	try:
+		return connection.execute(
+			"SELECT COUNT(*) FROM dwsongs WHERE link = ?",
+			(link, )
+		).fetchone()[0]
+	finally:
+		connection.close()
+
+def age_cover_attempt(db, link, quality, method_save, seconds):
+	# Move a row's last refresh attempt into the past, so the cooldown is
+	# already over when the helper reads it.
+	connection = sqlite3.connect(db.db_name)
+
+	try:
+		connection.execute(
+			"UPDATE dwsongs SET cover_attempted_at = ? \
+			WHERE link = ? AND quality = ? AND method_save = ?",
+			(time.time() - seconds, link, quality, method_save)
+		)
+		connection.commit()
+	finally:
+		connection.close()
+
 def legacy_db(song_db):
 	# A pre-flag database: the dwsongs table without the cover_ok column.
 	# The connection is closed explicitly: sqlite3's context manager only
@@ -483,14 +542,14 @@ def test_legacy_rows_stay_trusted_after_the_migration():
 		legacy_db(db.db_name)
 		db.initialize_db()
 
-		assert db.select_dwsongs("deezer.com/track/1", "FLAC", 3) == ("legacy_file_id", None)
+		assert db.select_dwsongs("deezer.com/track/1", "FLAC", 3) == ("legacy_file_id", None, None)
 
 def test_write_db_keeps_its_existing_signature():
 	with temp_db() as db:
 		db.initialize_db()
 		db.write_db("deezer.com/track/2", "new_file_id", "FLAC", 1, 3)
 
-		assert db.select_dwsongs("deezer.com/track/2", "FLAC", 3) == ("new_file_id", None)
+		assert db.select_dwsongs("deezer.com/track/2", "FLAC", 3) == ("new_file_id", None, None)
 
 def test_cover_flag_round_trips():
 	with temp_db() as db:
@@ -498,8 +557,13 @@ def test_cover_flag_round_trips():
 		db.write_db("deezer.com/track/3", "covered", "FLAC", 1, 3, cover_ok = 1)
 		db.write_db("deezer.com/album/4", "coverless", "FLAC", 1, 3, cover_ok = 0)
 
-		assert db.select_dwsongs("deezer.com/track/3", "FLAC", 3) == ("covered", 1)
-		assert db.select_dwsongs("deezer.com/album/4", "FLAC", 3) == ("coverless", 0)
+		assert db.select_dwsongs("deezer.com/track/3", "FLAC", 3) == ("covered", 1, None)
+
+		coverless = db.select_dwsongs("deezer.com/album/4", "FLAC", 3)
+
+		assert coverless[:2] == ("coverless", 0)
+		# a coverless write stamps the attempt so the caller can cool down
+		assert isinstance(coverless[2], float)
 
 def test_a_deleted_coverless_row_is_not_served_again():
 	with temp_db() as db:
@@ -512,13 +576,27 @@ def test_a_deleted_coverless_row_is_not_served_again():
 		db.delete_dwsongs(match[0])
 		assert db.select_dwsongs("deezer.com/track/5", "FLAC", 3) is None
 
-def test_duplicate_rows_do_not_raise():
+def test_a_second_write_lands_the_newest_file_id():
 	with temp_db() as db:
 		db.initialize_db()
 		db.write_db("deezer.com/track/6", "first_id", "FLAC", 1, 3)
 		db.write_db("deezer.com/track/6", "second_id", "FLAC", 1, 3)
 
-		assert db.select_dwsongs("deezer.com/track/6", "FLAC", 3)[0] == "first_id"
+		# an atomic replace: the key owns exactly one row, the newest upload
+		assert db.select_dwsongs("deezer.com/track/6", "FLAC", 3) == ("second_id", None, None)
+		assert count_rows(db, "deezer.com/track/6") == 1
+
+def test_a_failed_duplicate_write_keeps_the_servable_row():
+	with temp_db() as db:
+		db.initialize_db()
+		db.write_db("deezer.com/track/8", "kept_id", "FLAC", 1, 3)
+
+		# file_id is UNIQUE, so this insert fails: the transaction must roll
+		# back instead of committing the second key's delete
+		db.write_db("deezer.com/track/9", "kept_id", "FLAC", 1, 3)
+
+		assert db.select_dwsongs("deezer.com/track/8", "FLAC", 3) == ("kept_id", None, None)
+		assert db.select_dwsongs("deezer.com/track/9", "FLAC", 3) is None
 
 def test_schema_init_is_idempotent():
 	with temp_db() as db:
@@ -536,9 +614,34 @@ def test_schema_init_is_idempotent():
 		finally:
 			connection.close()
 
-		assert columns[-1] == "cover_ok"
+		assert columns[-2:] == ["cover_ok", "cover_attempted_at"]
 		assert columns.count("cover_ok") == 1
-		assert db.select_dwsongs("deezer.com/track/7", "FLAC", 3) == ("kept_id", 1)
+		assert columns.count("cover_attempted_at") == 1
+		assert db.select_dwsongs("deezer.com/track/7", "FLAC", 3) == ("kept_id", 1, None)
+
+def test_both_cover_columns_migrate_idempotently_over_a_legacy_row():
+	with temp_db() as db:
+		legacy_db(db.db_name)
+		db.initialize_db()
+		db.initialize_db()
+
+		connection = sqlite3.connect(db.db_name)
+
+		try:
+			columns = [
+				column[1]
+				for column in connection.execute("PRAGMA table_info(dwsongs)")
+			]
+			rows = connection.execute(
+				"SELECT file_id, cover_ok, cover_attempted_at FROM dwsongs"
+			).fetchall()
+		finally:
+			connection.close()
+
+		assert columns[-2:] == ["cover_ok", "cover_attempted_at"]
+		assert columns.count("cover_attempted_at") == 1
+		# the migration never rewrites a stored row
+		assert rows == [("legacy_file_id", None, None)]
 
 # --- (d) the helpers.download_help cache seams ---
 #
@@ -678,19 +781,129 @@ def check_track_seams(dw, link):
 
 	return served, downloaded
 
-def test_check_track_drops_a_coverless_row_and_downloads_again():
+def test_check_track_serves_a_coverless_row_inside_the_cooldown():
 	quality = download_help.get_quality_dee_s_quality("FLAC")
 
 	with temp_db() as db:
 		db.initialize_db()
-		db.write_db("track/101", "stale_file_id", quality, 1, 3, cover_ok = 0)
+		db.write_db("track/105", "recent_file_id", quality, 1, 3, cover_ok = 0)
+		match = db.select_dwsongs("track/105", quality, 3)
+
+		# write_db stamps the attempt, so a fresh coverless row cools down
+		assert isinstance(match[2], float)
+
 		served, downloaded = check_track_seams(
-			download_helper_stub(), "https://www.deezer.com/track/101"
+			download_helper_stub(), "https://www.deezer.com/track/105"
 		)
 
+		assert served == ["recent_file_id"]
+		assert downloaded == []
+		assert db.select_dwsongs("track/105", quality, 3) == match
+
+def test_check_track_recovers_a_coverless_row_once_the_cooldown_expires():
+	quality = download_help.get_quality_dee_s_quality("FLAC")
+
+	with temp_db() as db:
+		db.initialize_db()
+		db.write_db("track/106", "stale_file_id", quality, 1, 3, cover_ok = 0)
+		age_cover_attempt(db, "track/106", quality, 3, 7200)
+		served, downloaded = check_track_seams(
+			download_helper_stub(), "https://www.deezer.com/track/106"
+		)
+
+		assert downloaded == ["https://www.deezer.com/track/106"]
 		assert served == []
-		assert downloaded == ["https://www.deezer.com/track/101"]
-		assert db.select_dwsongs("track/101", quality, 3) is None
+		# soft invalidation: the cache row is not deleted before recovery
+		assert db.select_dwsongs("track/106", quality, 3)[:2] == ("stale_file_id", 0)
+
+def test_a_failed_track_recovery_serves_the_cached_file_id():
+	quality = download_help.get_quality_dee_s_quality("FLAC")
+
+	with temp_db() as db:
+		db.initialize_db()
+		db.write_db("track/107", "servable_file_id", quality, 1, 3, cover_ok = 0)
+		age_cover_attempt(db, "track/107", quality, 3, 7200)
+		dw = download_helper_stub()
+		attempted = []
+		served = []
+
+		def refused(self, link, cover_fallback_url = None):
+			attempted.append(link)
+			raise RuntimeError("cover sources refused")
+
+		with attr_patch(
+			(download_help.DW, "_DW__upload_audio", lambda self, file_id: served.append(file_id)),
+			(download_help.DW, "_DW__download_track", refused),
+		):
+			dw._DW__check_track("https://www.deezer.com/track/107")
+
+		assert attempted == ["https://www.deezer.com/track/107"]
+		assert served == ["servable_file_id"]
+		assert db.select_dwsongs("track/107", quality, 3)[:2] == ("servable_file_id", 0)
+
+def test_a_badrequest_after_a_failed_recovery_deletes_and_downloads():
+	quality = download_help.get_quality_dee_s_quality("FLAC")
+
+	with temp_db() as db:
+		db.initialize_db()
+		db.write_db("track/108", "dead_file_id", quality, 1, 3, cover_ok = 0)
+		age_cover_attempt(db, "track/108", quality, 3, 7200)
+		dw = download_helper_stub()
+		downloads = []
+		dead = []
+
+		def download(self, link, cover_fallback_url = None):
+			downloads.append(link)
+
+			if len(downloads) == 1:
+				raise RuntimeError("cover sources refused")
+
+			db.write_db("track/108", "fresh_file_id", quality, 1, 3, cover_ok = 1)
+
+		def gone(self, file_id):
+			dead.append(file_id)
+			raise download_help.BadRequest("file_id invalid")
+
+		with attr_patch(
+			(download_help.DW, "_DW__upload_audio", gone),
+			(download_help.DW, "_DW__download_track", download),
+		):
+			dw._DW__check_track("https://www.deezer.com/track/108")
+
+		# baseline semantics kept: a file_id dies only after Telegram proved it
+		assert dead == ["dead_file_id"]
+		assert downloads == [
+			"https://www.deezer.com/track/108",
+			"https://www.deezer.com/track/108"
+		]
+		assert db.select_dwsongs("track/108", quality, 3) == ("fresh_file_id", 1, None)
+
+def test_a_successful_track_recovery_replaces_the_row():
+	quality = download_help.get_quality_dee_s_quality("FLAC")
+
+	with temp_db() as db:
+		db.initialize_db()
+		db.write_db("track/109", "stale_file_id", quality, 1, 3, cover_ok = 0)
+		age_cover_attempt(db, "track/109", quality, 3, 7200)
+		dw = download_helper_stub()
+		served = []
+		downloads = []
+
+		def download(self, link, cover_fallback_url = None):
+			downloads.append(link)
+			db.write_db("track/109", "recovered_file_id", quality, 1, 3, cover_ok = 1)
+
+		with attr_patch(
+			(download_help.DW, "_DW__upload_audio", lambda self, file_id: served.append(file_id)),
+			(download_help.DW, "_DW__download_track", download),
+		):
+			dw._DW__check_track("https://www.deezer.com/track/109")
+
+		assert downloads == ["https://www.deezer.com/track/109"]
+		# the recovery upload wrote the row itself: serve nothing extra
+		assert served == []
+		assert db.select_dwsongs("track/109", quality, 3) == ("recovered_file_id", 1, None)
+		assert count_rows(db, "track/109") == 1
 
 def test_check_track_serves_a_legacy_null_row_unchanged():
 	quality = download_help.get_quality_dee_s_quality("FLAC")
@@ -704,7 +917,7 @@ def test_check_track_serves_a_legacy_null_row_unchanged():
 
 		assert served == ["legacy_file_id"]
 		assert downloaded == []
-		assert db.select_dwsongs("track/102", quality, 3) == ("legacy_file_id", None)
+		assert db.select_dwsongs("track/102", quality, 3) == ("legacy_file_id", None, None)
 
 def test_check_track_serves_a_covered_row_unchanged():
 	quality = download_help.get_quality_dee_s_quality("FLAC")
@@ -718,7 +931,7 @@ def test_check_track_serves_a_covered_row_unchanged():
 
 		assert served == ["covered_file_id"]
 		assert downloaded == []
-		assert db.select_dwsongs("track/103", quality, 3) == ("covered_file_id", 1)
+		assert db.select_dwsongs("track/103", quality, 3) == ("covered_file_id", 1, None)
 
 def test_check_track_keeps_the_stale_file_id_recovery():
 	quality = download_help.get_quality_dee_s_quality("FLAC")
@@ -747,12 +960,13 @@ def test_check_track_keeps_the_stale_file_id_recovery():
 		assert downloaded == ["https://www.deezer.com/track/104"]
 		assert db.select_dwsongs("track/104", quality, 3) is None
 
-def test_check_album_drops_a_coverless_row_and_downloads_again():
+def test_check_album_recovers_a_coverless_zip_once_the_cooldown_expires():
 	quality = download_help.get_quality_dee_s_quality("FLAC")
 
 	with temp_db() as db:
 		db.initialize_db()
 		db.write_db("album/201", "stale_zip_id", quality, 1, 3, cover_ok = 0)
+		age_cover_attempt(db, "album/201", quality, 3, 7200)
 		dw = download_helper_stub()
 		served = []
 		downloaded = []
@@ -766,9 +980,56 @@ def test_check_album_drops_a_coverless_row_and_downloads_again():
 		):
 			dw._DW__check_album("https://www.deezer.com/album/201", [])
 
-		assert served == []
 		assert downloaded == ["https://www.deezer.com/album/201"]
-		assert db.select_dwsongs("album/201", quality, 3) is None
+		assert served == []
+		assert db.select_dwsongs("album/201", quality, 3)[:2] == ("stale_zip_id", 0)
+
+def test_check_album_serves_a_coverless_zip_inside_the_cooldown():
+	quality = download_help.get_quality_dee_s_quality("FLAC")
+
+	with temp_db() as db:
+		db.initialize_db()
+		db.write_db("album/205", "recent_zip_id", quality, 1, 3, cover_ok = 0)
+		dw = download_helper_stub()
+		served = []
+		downloaded = []
+
+		with attr_patch(
+			(download_help.DW, "_DW__upload_zip", lambda self, file_id: served.append(file_id)),
+			(
+				download_help.DW, "_DW__download_album",
+				lambda self, link, cover_fallback_url = None: downloaded.append(link)
+			),
+		):
+			dw._DW__check_album("https://www.deezer.com/album/205", [])
+
+		assert served == ["recent_zip_id"]
+		assert downloaded == []
+
+def test_a_failed_album_recovery_serves_the_cached_zip():
+	quality = download_help.get_quality_dee_s_quality("FLAC")
+
+	with temp_db() as db:
+		db.initialize_db()
+		db.write_db("album/206", "servable_zip_id", quality, 1, 3, cover_ok = 0)
+		age_cover_attempt(db, "album/206", quality, 3, 7200)
+		dw = download_helper_stub()
+		served = []
+		attempted = []
+
+		def refused(self, link, cover_fallback_url = None):
+			attempted.append(link)
+			raise RuntimeError("cover sources refused")
+
+		with attr_patch(
+			(download_help.DW, "_DW__upload_zip", lambda self, file_id: served.append(file_id)),
+			(download_help.DW, "_DW__download_album", refused),
+		):
+			dw._DW__check_album("https://www.deezer.com/album/206", [])
+
+		assert attempted == ["https://www.deezer.com/album/206"]
+		assert served == ["servable_zip_id"]
+		assert db.select_dwsongs("album/206", quality, 3)[:2] == ("servable_zip_id", 0)
 
 def test_check_album_serves_a_legacy_null_row_unchanged():
 	quality = download_help.get_quality_dee_s_quality("FLAC")
@@ -791,15 +1052,16 @@ def test_check_album_serves_a_legacy_null_row_unchanged():
 
 		assert served == ["legacy_zip_id"]
 		assert downloaded == []
-		assert db.select_dwsongs("album/202", quality, 3) == ("legacy_zip_id", None)
+		assert db.select_dwsongs("album/202", quality, 3) == ("legacy_zip_id", None, None)
 
-def test_check_album_redownloads_a_coverless_track_row():
+def test_check_album_recovers_a_coverless_track_once_the_cooldown_expires():
 	quality = download_help.get_quality_dee_s_quality("FLAC")
 
 	with temp_db() as db:
 		db.initialize_db()
 		db.write_db("album/303", "album_zip_id", quality, 1, 3, cover_ok = 1)
-		db.write_db("track/304", "stale_track_id", quality, 1, 3, cover_ok = 0)
+		db.write_db("track/306", "stale_track_id", quality, 1, 3, cover_ok = 0)
+		age_cover_attempt(db, "track/306", quality, 3, 7200)
 		dw = download_helper_stub(tracks = True)
 		zips = []
 		audio = []
@@ -815,19 +1077,86 @@ def test_check_album_redownloads_a_coverless_track_row():
 		):
 			dw._DW__check_album(
 				"https://www.deezer.com/album/303",
-				[{"link": "https://www.deezer.com/track/304"}]
+				[{"link": "https://www.deezer.com/track/306"}]
 			)
 
 		assert zips == ["album_zip_id"]
 		assert audio == []
-		assert recovered == ["https://www.deezer.com/track/304"]
-		assert db.select_dwsongs("track/304", quality, 3) is None
+		assert recovered == ["https://www.deezer.com/track/306"]
+		# soft invalidation applies to the per-track row too: no delete first
+		assert db.select_dwsongs("track/306", quality, 3)[:2] == ("stale_track_id", 0)
 
-def track_for_upload(directory, image):
+def test_check_album_serves_a_coverless_track_inside_the_cooldown():
+	quality = download_help.get_quality_dee_s_quality("FLAC")
+
+	with temp_db() as db:
+		db.initialize_db()
+		db.write_db("album/307", "album_zip_id", quality, 1, 3, cover_ok = 1)
+		db.write_db("track/308", "recent_track_id", quality, 1, 3, cover_ok = 0)
+		dw = download_helper_stub(tracks = True)
+		audio = []
+		recovered = []
+
+		with attr_patch(
+			(download_help.DW, "_DW__upload_zip", lambda self, file_id: None),
+			(download_help.DW, "_DW__upload_audio", lambda self, file_id: audio.append(file_id)),
+			(
+				download_help.DW, "_DW__check_track",
+				lambda self, link, cover_fallback_url = None: recovered.append(link)
+			),
+		):
+			dw._DW__check_album(
+				"https://www.deezer.com/album/307",
+				[{"link": "https://www.deezer.com/track/308"}]
+			)
+
+		assert audio == ["recent_track_id"]
+		assert recovered == []
+
+def test_an_album_zip_refresh_does_not_upload_the_tracks_again():
+	# baseline downloaded the whole album for a coverless zip row and skipped
+	# the per-track loop; the soft refresh keeps that exactly
+	quality = download_help.get_quality_dee_s_quality("FLAC")
+
+	with temp_db() as db:
+		db.initialize_db()
+		db.write_db("album/309", "stale_zip_id", quality, 1, 3, cover_ok = 0)
+		age_cover_attempt(db, "album/309", quality, 3, 7200)
+		db.write_db("track/310", "cached_track_id", quality, 1, 3, cover_ok = 1)
+		dw = download_helper_stub(tracks = True)
+		audio = []
+		recovered = []
+		downloaded = []
+
+		with attr_patch(
+			(download_help.DW, "_DW__upload_zip", lambda self, file_id: None),
+			(download_help.DW, "_DW__upload_audio", lambda self, file_id: audio.append(file_id)),
+			(
+				download_help.DW, "_DW__download_album",
+				lambda self, link, cover_fallback_url = None: downloaded.append(link)
+			),
+			(
+				download_help.DW, "_DW__check_track",
+				lambda self, link, cover_fallback_url = None: recovered.append(link)
+			),
+		):
+			dw._DW__check_album(
+				"https://www.deezer.com/album/309",
+				[{"link": "https://www.deezer.com/track/310"}]
+			)
+
+		assert downloaded == ["https://www.deezer.com/album/309"]
+		assert audio == []
+		assert recovered == []
+
+def track_for_upload(directory, image, with_picture = True, readable = True):
 	song_path = os.path.join(directory, "upload.flac")
 
-	with open(song_path, "wb") as song:
-		song.write(b"\x00" * 64)
+	if readable:
+		write_flac(song_path, 15, with_picture)
+	else:
+		with open(song_path, "wb") as song:
+			song.write(b"\x00" * 64)
 
 	tags = {
 		"album": "Probe Album", "artist": "Probe Artist",
@@ -842,39 +1171,62 @@ def track_for_upload(directory, image):
 		link = "https://www.deezer.com/track/1", song_name = "Probe Song - Probe Artist"
 	)
 
-def upload_track(track, uploaded_id = "uploaded_audio_id"):
+def upload_track(track, uploaded_id = "uploaded_audio_id", thumb_data = b"\xff\xd8\xff\xd9"):
 	dw = download_helper_stub()
 	tg_user_api = SimpleNamespace(
 		send_audio = lambda **kwargs: SimpleNamespace(audio = SimpleNamespace(file_id = uploaded_id))
 	)
 
 	with attr_patch(
-		(download_help, "fetch_thumb", lambda *args, **kwargs: SimpleNamespace(data = b"\xff\xd8\xff\xd9")),
+		(download_help, "fetch_thumb", lambda *args, **kwargs: SimpleNamespace(data = thumb_data)),
 		(download_help, "bot", RecordingBot()),
 		(download_help, "SetConfigs", SimpleNamespace(tg_user_api = tg_user_api, create_zips = True)),
 		(download_help, "sleep", lambda seconds: None),
 	):
 		dw._DW__upload_audio_track(track)
 
-def test_an_upload_with_artwork_records_cover_ok_one():
+def test_a_covered_file_records_cover_ok_one_even_when_the_fetch_fails():
 	quality = download_help.get_quality_dee_s_quality("FLAC")
 
 	with song_dir() as directory:
 		with temp_db() as db:
 			db.initialize_db()
-			upload_track(track_for_upload(directory, make_jpeg()))
+			# the delivered file carries the picture; the CDN answered nothing
+			upload_track(
+				track_for_upload(directory, b"", with_picture = True),
+				thumb_data = b""
+			)
 
-			assert db.select_dwsongs("upload_md5", quality, 3) == ("uploaded_audio_id", 1)
+			assert db.select_dwsongs("upload_md5", quality, 3) == ("uploaded_audio_id", 1, None)
 
-def test_an_upload_without_artwork_records_cover_ok_zero():
+def test_a_coverless_file_records_cover_ok_zero_even_when_the_fetch_succeeds():
 	quality = download_help.get_quality_dee_s_quality("FLAC")
 
 	with song_dir() as directory:
 		with temp_db() as db:
 			db.initialize_db()
-			upload_track(track_for_upload(directory, b""))
+			# a fetched cover does not make the delivered file covered
+			upload_track(
+				track_for_upload(directory, make_jpeg(), with_picture = False),
+				thumb_data = make_jpeg()
+			)
+			match = db.select_dwsongs("upload_md5", quality, 3)
 
-			assert db.select_dwsongs("upload_md5", quality, 3) == ("uploaded_audio_id", 0)
+			assert match[:2] == ("uploaded_audio_id", 0)
+			assert isinstance(match[2], float)
+
+def test_an_unreadable_file_records_cover_ok_zero():
+	quality = download_help.get_quality_dee_s_quality("FLAC")
+
+	with song_dir() as directory:
+		with temp_db() as db:
+			db.initialize_db()
+			# the presence probe must not abort an upload it cannot read
+			upload_track(
+				track_for_upload(directory, make_jpeg(), readable = False)
+			)
+
+			assert db.select_dwsongs("upload_md5", quality, 3)[:2] == ("uploaded_audio_id", 0)
 
 def album_for_upload(directory, image):
 	zip_path = os.path.join(directory, "album.zip")
@@ -912,7 +1264,7 @@ def test_an_album_zip_with_artwork_records_cover_ok_one():
 			db.initialize_db()
 			upload_album(album_for_upload(directory, make_jpeg()))
 
-			assert db.select_dwsongs("upload_album_md5", "FLAC", 3) == ("uploaded_zip_id", 1)
+			assert db.select_dwsongs("upload_album_md5", "FLAC", 3) == ("uploaded_zip_id", 1, None)
 
 def test_an_album_zip_without_artwork_records_cover_ok_zero():
 	with song_dir() as directory:
@@ -920,7 +1272,7 @@ def test_an_album_zip_without_artwork_records_cover_ok_zero():
 			db.initialize_db()
 			upload_album(album_for_upload(directory, None))
 
-			assert db.select_dwsongs("upload_album_md5", "FLAC", 3) == ("uploaded_zip_id", 0)
+			assert db.select_dwsongs("upload_album_md5", "FLAC", 3)[:2] == ("uploaded_zip_id", 0)
 
 def test_a_too_big_album_stays_legacy_trusted():
 	with song_dir() as directory:
@@ -928,7 +1280,7 @@ def test_a_too_big_album_stays_legacy_trusted():
 			db.initialize_db()
 			upload_album(album_for_upload(directory, make_jpeg()), zip_size = 99.0)
 
-			assert db.select_dwsongs("upload_album_md5", "FLAC", 3) == ("TOO BIG", None)
+			assert db.select_dwsongs("upload_album_md5", "FLAC", 3) == ("TOO BIG", None, None)
 
 def test_db_help_startup_still_creates_every_table():
 	# utils.utils starts the bot through helpers.db_help.initialize_db, which

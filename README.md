@@ -225,7 +225,12 @@ fallbacks and failure reason codes (`cdn_403`, `cdn_empty`, `invalid_body`,
 
 Files downloaded before a cover fix are re-tagged automatically (the tag check
 requires an actual picture, not just a tag count), and stored Telegram uploads
-without artwork are re-uploaded.
+without artwork are refreshed in place: the cached `file_id` keeps being
+served until the replacement upload succeeds, so a failed re-download never
+costs a working cached upload. The stored flag records whether the delivered
+file itself carries artwork, and a failed refresh starts a one-hour cooldown
+per entry — permanently coverless content keeps working and is retried at most
+once an hour instead of looping on every request.
 
 ## Verifying covers after a deploy
 

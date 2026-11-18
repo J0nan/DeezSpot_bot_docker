@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-from time import sleep
+from time import sleep, time
 from os.path import isfile
 from telegram import ChatAction
 from telegram.error import BadRequest
@@ -11,6 +11,7 @@ from deezloader.exceptions import TrackNotFound
 from deezloader.libutils.utils import request, what_kind
 from inlines.inline_keyboards import create_keyboard_artist
 from deezloader.deezloader.cover_art import fetch_thumb
+from deezloader.__taggers__ import has_picture
 
 # One cache implementation for the whole bot: the dwsongs helpers live in
 # utils.db, which helpers.db_help also re-exports.
@@ -55,8 +56,22 @@ from configs.bot_settings import (
 bot = SetConfigs.tg_bot_api.bot
 l_telegram, l_uploads, l_downloads, l_links = logging_bot()
 
+# How long a cover_ok == 0 row is served before another refresh attempt.
+# Permanently coverless content would otherwise delete, download, upload and
+# stamp 0 again on every request, forever.
+COVER_RETRY_COOLDOWN = 3600.0
+
 def log_error(log, exc_info = False):
 	l_downloads.error(log, exc_info = exc_info)
+
+def delivered_has_cover(song_path, file_format):
+	# The presence flag follows the delivered file, not the fetched bytes: a
+	# covered file uploaded during a CDN outage is still covered. A file the
+	# parser cannot read reads as coverless instead of aborting the upload.
+	try:
+		return has_picture(song_path, file_format)
+	except Exception:
+		return False
 
 class DW:
 	def __init__(
@@ -208,7 +223,7 @@ class DW:
 		write_db(
 			track_md5, file_id,
 			track_quality, self.__chat_id, self.__method_save,
-			1 if tag.get('image') else 0
+			1 if delivered_has_cover(c_path, f_format) else 0
 		)
 
 		self.__upload_audio(file_id)
@@ -344,6 +359,7 @@ class DW:
 		write_db(
 			album_md5, file_id,
 			album_quality, self.__chat_id, self.__method_save,
+			# the zip's artwork is the album image carried by the document
 			1 if album.image else 0
 		)
 
@@ -425,7 +441,7 @@ class DW:
 			write_db(
 				track_md5, file_id,
 				track_quality, self.__chat_id, self.__method_save,
-				1 if tag.get('image') else 0
+				1 if delivered_has_cover(c_path, f_format) else 0
 			)
 
 			self.__upload_audio(file_id)
@@ -539,25 +555,62 @@ class DW:
 		log_error(error, exc_info = True)
 		log_error(err_str)
 
+	def __cover_cooldown_active(self, cover_attempted_at):
+		if cover_attempted_at is None:
+			return False
+
+		return time() - cover_attempted_at < COVER_RETRY_COOLDOWN
+
+	def __serve_or_refresh(self, link, match, recover, serve, retry):
+		# One rule for all three cache sites. A NULL (legacy) or covered row
+		# is served exactly as before: only a file_id Telegram proves dead is
+		# deleted. A cover_ok == 0 row is refreshed in place -- the stored
+		# file_id stays servable until the replacement upload succeeds -- and
+		# the cooldown bounds retries for permanently coverless content.
+		# Returns True when the refresh ran (the recovery already delivered
+		# everything), False when the cached row was the answer.
+		file_id, cover_ok, cover_attempted_at = match
+
+		if cover_ok == 0:
+			if self.__cover_cooldown_active(cover_attempted_at):
+				l_downloads.info(
+					f"cover refresh deferred for {link} (cooldown)"
+				)
+			else:
+				l_downloads.info(f"cover refresh attempted for {link}")
+
+				try:
+					# the recovery upload writes the replacement row itself
+					recover()
+
+					return True
+				except Exception as error:
+					l_downloads.warning(
+						f"cover refresh failed for {link}: {error!r}, serving cached file_id"
+					)
+
+					# fall through: the old file_id is still servable
+
+		try:
+			serve(file_id)
+		except BadRequest:
+			delete_dwsongs(file_id)
+			retry()
+
+		return False
+
 	def __check_track(self, link, cover_fallback_url = None):
 		self.__set_quality(link)
 		link_path = get_url_path(link)
 		match = select_dwsongs(link_path, self.__n_quality, self.__method_save)
 
-		if match and match[1] == 0:
-			# a stored upload without artwork: drop the row so the fresh
-			# download below embeds a cover
-			delete_dwsongs(match[0])
-			match = None
-
 		if match:
-			file_id = match[0]
-
-			try:
-				self.__upload_audio(file_id)
-			except BadRequest:
-				delete_dwsongs(file_id)
-				self.__check_track(link, cover_fallback_url = cover_fallback_url)
+			self.__serve_or_refresh(
+				link, match,
+				lambda: self.__download_track(link, cover_fallback_url = cover_fallback_url),
+				lambda file_id: self.__upload_audio(file_id),
+				lambda: self.__check_track(link, cover_fallback_url = cover_fallback_url)
+			)
 		else:
 			try:
 				self.__download_track(link, cover_fallback_url = cover_fallback_url)
@@ -569,23 +622,21 @@ class DW:
 		link_path = get_url_path(link)
 		match = select_dwsongs(link_path, self.__n_quality, self.__method_save)
 
-		if match and match[1] == 0:
-			# same rule as __check_track, one level up: the stored zip has
-			# no thumbnail, so fetch and upload the album again
-			delete_dwsongs(match[0])
-			match = None
-
 		if match:
-			file_id = match[0]
+			# TOO BIG marks a zip that was never uploaded: nothing to serve
+			refreshed = False
 
-			if file_id != "TOO BIG":
-				try:
-					self.__upload_zip(file_id)
-				except BadRequest:
-					delete_dwsongs(file_id)
-					self.__check_album(link, tracks, cover_fallback_url = cover_fallback_url)
+			if match[0] != "TOO BIG":
+				refreshed = self.__serve_or_refresh(
+					link, match,
+					lambda: self.__download_album(link, cover_fallback_url = cover_fallback_url),
+					lambda zip_id: self.__upload_zip(zip_id),
+					lambda: self.__check_album(link, tracks, cover_fallback_url = cover_fallback_url)
+				)
 
-			if self.__send_to_user_tracks:
+			# a refreshed album was downloaded whole, tracks included: the
+			# per-track loop would upload every one of them a second time
+			if self.__send_to_user_tracks and not refreshed:
 				for track in tracks:
 					if self.__source == 1:
 						c_link = track['link']
@@ -603,21 +654,12 @@ class DW:
 
 						continue
 
-					c_file_id = c_match[0]
-
-					if c_match[1] == 0:
-						# stored track upload without artwork: drop it and
-						# let __check_track fetch a covered copy
-						delete_dwsongs(c_file_id)
-						self.__check_track(c_link, cover_fallback_url = cover_fallback_url)
-
-						continue
-
-					try:
-						self.__upload_audio(c_file_id)
-					except BadRequest:
-						delete_dwsongs(c_file_id)
-						self.__check_track(c_link, cover_fallback_url = cover_fallback_url)
+					self.__serve_or_refresh(
+						c_link, c_match,
+						lambda: self.__check_track(c_link, cover_fallback_url = cover_fallback_url),
+						lambda track_id: self.__upload_audio(track_id),
+						lambda: self.__check_track(c_link, cover_fallback_url = cover_fallback_url)
+					)
 		else:
 			try:
 				self.__download_album(link, cover_fallback_url = cover_fallback_url)
