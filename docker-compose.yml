@@ -1,8 +1,8 @@
 services:
 
   deezspot_bot:
-    # image: j0n4n/deezspot_bot_docker
-    build: .
+    image: j0n4n/deezspot_bot_docker
+    # build: .
     container_name: deezspot_bot
     environment:
       - MODE_BOT=${MODE_BOT:-2}
