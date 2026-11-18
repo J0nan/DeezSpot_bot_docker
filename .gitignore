@@ -160,3 +160,4 @@ credentials/*
 .atl/*
 .codegraph
 odd/*
+tests/

@@ -8,7 +8,7 @@ from ..exceptions import TrackNotFound
 from librespot.metadata import TrackId
 from .spotify_settings import qualities
 from ..libutils.others_settings import answers
-from ..__taggers__ import write_tags, check_track
+from ..__taggers__ import write_tags, check_track, has_complete_tags
 from librespot.audio.decoders import VorbisOnlyAudioQuality
 
 from os import (
@@ -102,15 +102,22 @@ class EASY_DW:
 		return self.__c_track
 
 	def download_try(self) -> Track:
-		if isfile(self.__song_path) and check_track(self.__c_track):
-			if self.__recursive_download:
-				return self.__c_track
+		if isfile(self.__song_path):
+			if check_track(self.__c_track):
+				if self.__recursive_download:
+					return self.__c_track
 
-			ans = input(
-				f"Track \"{self.__song_path}\" already exists, do you want to redownload it?(y or n):"
-			)
+				ans = input(
+					f"Track \"{self.__song_path}\" already exists, do you want to redownload it?(y or n):"
+				)
 
-			if not ans in answers:
+				if not ans in answers:
+					return self.__c_track
+			elif has_complete_tags(self.__c_track):
+				# Complete tag set, missing artwork only: re-tag in place
+				# instead of streaming the track from Spotify again.
+				write_tags(self.__c_track)
+
 				return self.__c_track
 
 		track_id = TrackId.from_base62(self.__ids)

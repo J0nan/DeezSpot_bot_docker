@@ -1,4 +1,4 @@
-FROM python:3.10
+FROM python:3.11-bookworm
 
 RUN apt-get -y update
 RUN apt-get install -y ffmpeg git

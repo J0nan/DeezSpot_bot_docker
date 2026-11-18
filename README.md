@@ -110,6 +110,67 @@ Docker Variables:
 - **ACRCLOUD_SECRET**: for acrcloud secret look at [acrcloud](https://docs.acrcloud.com/tutorials/recognize-music)
 - **ACRCLOUD_HOST**: for host look at [acrcloud](https://docs.acrcloud.com/tutorials/recognize-music)
 
+# Environment file (.env)
+
+`docker-compose.yml` interpolates `${VAR}` from a `.env` file at the repository root (gitignored) or from the host environment. Create `.env` with the template below and fill in your own values — never commit real credentials.
+
+```dotenv
+# Required for startup — the bot crashes at import if any of these is missing.
+BOT_TOKEN=
+API_ID=
+API_HASH=
+ARL_TOKEN=
+# Chat ids (send a message to @JsonDumpBot to get them; channels are usually
+# negative). USER_ERRORS: where user errors go. BUNKER_CHANNEL: upload archive.
+# OWL_CHANNEL: announcements. ROOT_ID: your admin user id.
+USER_ERRORS=
+BUNKER_CHANNEL=
+OWL_CHANNEL=
+ROOT_ID=
+
+# Spotify metadata (search, conversion, cover fallback).
+# Empty keeps the public deezloader defaults baked into the code.
+SPOTIFY_CLIENT_ID=
+SPOTIFY_CLIENT_SECRET=
+
+# Optional: Deezer account login (only if the ARL expires)
+EMAIL_DEE=
+PWD_DEE=
+
+# Optional: ACRCloud song recognition
+ACRCLOUD_KEY=
+ACRCLOUD_SECRET=
+ACRCLOUD_HOST=
+
+# Optional: behavior tuning — empty or absent keeps the documented defaults
+# (compose applies them). MODE_BOT 2, WARNING_BANNING 6, FLOOD_WINDOW_SECONDS 4,
+# FLOOD_MESSAGE_LIMIT 12, METHOD_SAVE 3, DOWNLOAD_DIR_MAX_SIZE 6,
+# PROGRESS_STATUS_RATE 150, TIME_SLEEP 8, SECONDS_LIMITS_ALBUM 30000,
+# SECONDS_LIMITS_TRACK 7200, UPLOAD_MAX_SIZE_USER 2, MAX_SONGS_PER_PLAYLIST 200,
+# MAX_DOWNLOAD_USER 3, BOT_NAME @, FORUM @.
+WARNING_BANNING=
+FLOOD_WINDOW_SECONDS=
+FLOOD_MESSAGE_LIMIT=
+METHOD_SAVE=
+DOWNLOAD_DIR_MAX_SIZE=
+PROGRESS_STATUS_RATE=
+TIME_SLEEP=
+SECONDS_LIMITS_ALBUM=
+SECONDS_LIMITS_TRACK=
+UPLOAD_MAX_SIZE_USER=
+MAX_SONGS_PER_PLAYLIST=
+MAX_DOWNLOAD_USER=
+BOT_NAME=
+FORUM=
+MODE_BOT=
+
+# Not needed for covers or the converted download path (native Spotify only):
+# EMAIL_SPO=
+# PWD_SPO=
+```
+
+No additional API keys are required for cover art: the Deezer CDN, Spotify's image CDN (`i.scdn.co`) and the iTunes lookup API are all public.
+
 # How to set Spotify credentials
 
 1. Download the latest version https://github.com/dspearson/librespot-auth from the release tab
@@ -150,3 +211,7 @@ To obtain your Deezer ARL cookie, you can follow these steps:
 3. Click the lock icon in the address bar.
 4. Click Cookies.
 5. Search for the arl cookie and copy the value.
+
+# Cover art
+
+Covers are fetched through a resilient Deezer → Spotify → iTunes chain with image validation, so refusals never become coverless files and a fallback rung still saves the artwork. Successful fallbacks and failure reason codes (`cdn_403`, `cdn_empty`, `invalid_body`, `no_md5`, `fallback_used`, `all_sources_failed`) are logged to `logs/downloads.log`. Previously coverless files are re-tagged in place and stored coverless uploads are re-uploaded via a soft cache refresh bounded by a one-hour cooldown.

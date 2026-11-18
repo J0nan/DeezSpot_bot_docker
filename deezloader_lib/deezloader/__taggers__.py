@@ -1,5 +1,7 @@
 #!/usr/bin/python3
 
+import logging
+from os.path import splitext
 from base64 import b64encode
 from mutagen.flac import FLAC, Picture
 from mutagen.oggvorbis import OggVorbis
@@ -14,14 +16,124 @@ from mutagen.id3 import (
 	TPUB, TCOP, TXXX, TCOM, IPLS
 )
 
+logger = logging.getLogger(__name__)
+
+# Shared tag count: check_track also needs a picture, has_complete_tags answers
+# the tag question alone so the downloader can re-tag in place.
+MIN_COMPLETE_TAGS = 14
+
+def __detect_mime(image):
+	if image[:2] == b"\xff\xd8":
+		return "image/jpeg"
+
+	if image[:4] == b"\x89PNG":
+		return "image/png"
+
+	if image[:6] in (b"GIF87a", b"GIF89a"):
+		return "image/gif"
+
+	if image[:4] == b"RIFF" and image[8:12] == b"WEBP":
+		return "image/webp"
+
+	return "application/octet-stream"
+
+def __detect_depth(image):
+	if image[:4] == b"\x89PNG":
+		# PNG colour types: 0 grey, 2 RGB, 3 palette, 4 grey+alpha, 6 RGBA.
+		colour_type = image[25] if len(image) > 25 else 0
+		bit_depth = image[24] if len(image) > 24 else 8
+		channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}.get(colour_type, 0)
+
+		return bit_depth * channels
+
+	if image[:2] == b"\xff\xd8":
+		return 24
+
+	return 0
+
+def __detect_size(image):
+	if image[:4] == b"\x89PNG":
+		width = int.from_bytes(image[16:20], "big")
+		height = int.from_bytes(image[20:24], "big")
+
+		return width, height
+
+	return __detect_jpeg_size(image)
+
+def __detect_jpeg_size(image):
+	# Walk the JPEG segments until the frame header carries the size.
+	index = 2
+
+	while index + 1 < len(image):
+		if image[index] != 0xFF:
+			index += 1
+
+			continue
+
+		# Any number of 0xFF fill bytes may precede a marker.
+		while index + 1 < len(image) and image[index + 1] == 0xFF:
+			index += 1
+
+		if index + 1 >= len(image):
+			break
+
+		marker = image[index + 1]
+		index += 2
+
+		# Standalone markers carry no length field.
+		if marker in (
+			0x01, 0xD0, 0xD1, 0xD2, 0xD3,
+			0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9
+		):
+			continue
+
+		if index + 2 > len(image):
+			break
+
+		segment = int.from_bytes(image[index:index + 2], "big")
+
+		if segment < 2:
+			break
+
+		if marker in (
+			0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6,
+			0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF
+		):
+			if index + 7 > len(image):
+				break
+
+			height = int.from_bytes(image[index + 3:index + 5], "big")
+			width = int.from_bytes(image[index + 5:index + 7], "big")
+
+			return width, height
+
+		index += segment
+
+	return 0, 0
+
+def __picture_block(image):
+	# A FLAC picture block without a mime type and dimensions is invalid:
+	# players drop the artwork even though the bytes are present, which is
+	# why ogg and flac files looked coverless while mp3 worked. Formats
+	# whose size cannot be read keep 0x0 (unknown) but still carry a mime.
+	images = Picture()
+	images.type = 3
+	images.mime = __detect_mime(image)
+	images.width, images.height = __detect_size(image)
+	images.depth = __detect_depth(image)
+	images.data = image
+
+	return images
+
 def __write_flac(song, data):
 	tag = FLAC(song)
 	tag.delete()
-	images = Picture()
-	images.type = 3
-	images.data = data['image']
 	tag.clear_pictures()
-	tag.add_picture(images)
+
+	if data['image']:
+		tag.add_picture(__picture_block(data['image']))
+	else:
+		logger.warning("no cover art available for %s", song)
 	tag['lyrics'] = data['lyric']
 	tag['artist'] = data['artist']
 	tag['title'] = data['music']
@@ -49,14 +161,17 @@ def __write_mp3(song, data):
 	except ID3NoHeaderError:
 		audio = ID3()
 
-	audio.add(
-		APIC(
-			mime = "image/jpeg",
-			type = 3,
-			desc = "album front cover",
-			data = data['image']
+	if data['image']:
+		audio.add(
+			APIC(
+				mime = __detect_mime(data['image']),
+				type = 3,
+				desc = "album front cover",
+				data = data['image']
+			)
 		)
-	)
+	else:
+		logger.warning("no cover art available for %s", song)
 
 	audio.add(
 		COMM(
@@ -196,15 +311,13 @@ def __write_mp3(song, data):
 
 def __write_ogg(song, data):
 	tag = OggVorbis(song)
-	images = Picture()
-	images.type = 3
-	images.data = data['image']
 
-	pic_data = b64encode(
-		images.write()
-	).decode("ascii")
-
-	tag['metadata_block_picture'] = pic_data
+	if data['image']:
+		tag['metadata_block_picture'] = b64encode(
+			__picture_block(data['image']).write()
+		).decode("ascii")
+	else:
+		logger.warning("no cover art available for %s", song)
 	#tag['lyrics'] = data['lyric']
 	tag['artist'] = data['artist']
 	tag['title'] = data['music']
@@ -238,26 +351,70 @@ def write_tags(track: Track):
 	else:
 		__write_mp3(song, song_metadata)
 
-def check_track(track: Track):
-	song = track.song_path
-	f_format = track.file_format
-	is_ok = False
-
+def __open_tags(song, f_format):
+	# One opener for every probe, so check_track and has_complete_tags cannot
+	# drift apart. A file without an ID3 header yields None.
 	if f_format == ".flac":
-		tags = FLAC(song)
-	elif f_format == ".ogg":
-		tags = OggVorbis(song)
+		return FLAC(song)
+
+	if f_format == ".ogg":
+		return OggVorbis(song)
+
+	try:
+		return ID3(song)
+	except ID3NoHeaderError:
+		return None
+
+def __has_picture(tags, f_format):
+	if f_format == ".flac":
+		return len(tags.pictures) > 0
+
+	if f_format == ".ogg":
+		return "metadata_block_picture" in tags
+
+	return len(tags.getall("APIC")) > 0
+
+def has_picture(track_or_path, file_format = None):
+	# Public probe for the delivered file rather than the fetch result; accepts a
+	# Track-like object or a bare path, and __has_picture does the dispatch.
+	if isinstance(track_or_path, str):
+		song_path = track_or_path
+
+		if file_format is None:
+			file_format = splitext(song_path)[1].lower()
 	else:
-		try:
-			tags = ID3(song)
-		except ID3NoHeaderError:
-			return is_ok
+		song_path = track_or_path.song_path
+		file_format = track_or_path.file_format
+
+	tags = __open_tags(song_path, file_format)
+
+	if tags is None:
+		return False
+
+	return __has_picture(tags, file_format)
+
+def check_track(track: Track):
+	tags = __open_tags(track.song_path, track.file_format)
+
+	if tags is None:
+		return False
 
 	l_tags = len(
 		tags.keys()
 	)
 
-	if l_tags >= 14:
-		is_ok = True
+	return l_tags >= MIN_COMPLETE_TAGS and __has_picture(tags, track.file_format)
 
-	return is_ok
+def has_complete_tags(track: Track):
+	# The legacy tag-count answer without the picture requirement: it tells
+	# download_try the audio is complete and only artwork is missing.
+	tags = __open_tags(track.song_path, track.file_format)
+
+	if tags is None:
+		return False
+
+	l_tags = len(
+		tags.keys()
+	)
+
+	return l_tags >= MIN_COMPLETE_TAGS

@@ -1,14 +1,15 @@
 #!/usr/bin/python3
 
-from threading import Lock
-
+import logging
+import time
 from spotipy import Spotify
 from .exceptions import InvalidLink
-from spotapi import PublicPlaylist
+from spotapi import SyncCatalogue, SpotAPIError
 from spotipy.exceptions import SpotifyException
-from spotapi.exceptions import PlaylistError
 from spotipy.cache_handler import CacheFileHandler
 from spotipy.oauth2 import SpotifyClientCredentials
+
+logger = logging.getLogger(__name__)
 
 try:
     # Prefer project config when running inside the bot
@@ -27,11 +28,11 @@ except Exception:
 class Spo:
 	__error_codes = [404, 400]
 
-	# SpotAPI serves the whole playlist (no 100-track cap) through the
-	# web player's GraphQL API, which only needs anonymous tokens.
-	__playlist_client = None
-	__playlist_lock = Lock()
-	__playlist_page = 343
+	# A transient outage or a short page used to look either like a
+	# bad link or like a smaller playlist. One bounded retry
+	# separates the two without slowing the normal path.
+	__playlist_attempts = 2
+	__playlist_backoff = 1
 
 	@classmethod
 	def __init__(cls):
@@ -57,21 +58,37 @@ class Spo:
 
 		return results
 
-	@classmethod
-	def __get_playlist_client(cls):
-		# The anonymous session tokens and the persisted-query hashes
-		# are expensive to fetch, so one client is shared and reused.
-		if cls.__playlist_client is None:
-			with cls.__playlist_lock:
-				if cls.__playlist_client is None:
-					cls.__playlist_client = PublicPlaylist("")
+	@staticmethod
+	def __largest_source_url(sources):
+		# The playlist-level rule: of several sizes in one artwork group, the
+		# largest url is the one worth handing on; none means "no image".
+		sources = sources or []
 
-		return cls.__playlist_client
+		if not sources:
+			return None
+
+		big = max(
+			sources,
+			key = lambda source: getattr(source, 'width', 0) or 0
+		)
+
+		return getattr(big, 'url', None)
 
 	@staticmethod
-	def __map_playlist_track(item):
-		data = (item.get('itemV2') or {}).get('data')
-		uri = (data or {}).get('uri') or ''
+	def __map_track_album(item):
+		# SpotAPI 2 carries the track's album artwork on the track itself; map it
+		# to track['album']['images'] to match the spotipy shape. No artwork maps
+		# to nothing, keeping the returned track byte-identical.
+		album = getattr(item, 'album_of_track', None)
+		cover_art = getattr(album, 'cover_art', None)
+		url = Spo.__largest_source_url(getattr(cover_art, 'sources', None))
+
+		return [{'url': url}] if url else []
+
+	@staticmethod
+	def __map_playlist_track(entry):
+		item = getattr(entry, 'item', None)
+		uri = getattr(item, 'uri', None) or ''
 
 		if not uri.startswith('spotify:track:'):
 			# Episodes, local files and removed tracks cannot be
@@ -81,89 +98,149 @@ class Spo:
 		ids = uri.split(':')[-1]
 		artists = [
 			{
-				'name': artist['profile']['name']
+				'name': artist.profile.name
 			}
 
-			for artist in data.get('artists', {}).get('items', [])
-			if artist.get('profile', {}).get('name')
+			for artist in (getattr(item.artists, 'items', None) or [])
+			if getattr(getattr(artist, 'profile', None), 'name', None)
 		]
-		added_at = (item.get('addedAt') or {}).get('isoString')
+		name = getattr(item, 'name', None) or 'Unknown'
+		track = {
+			'name': name,
+			'artists': artists or [{'name': 'Unknown'}],
+			'external_urls': {
+				'spotify': f"https://open.spotify.com/track/{ids}"
+			}
+		}
+		album_images = Spo.__map_track_album(item)
+
+		if album_images:
+			track['album'] = {'images': album_images}
 
 		return {
-			'added_at': added_at,
-			'track': {
-				'name': data.get('name', 'Unknown'),
-				'artists': artists or [{'name': 'Unknown'}],
-				'external_urls': {
-					'spotify': f"https://open.spotify.com/track/{ids}"
-				}
-			}
+			'added_at': getattr(entry, 'added_at', None),
+			'track': track
 		}
 
 	@staticmethod
-	def __map_playlist_images(playlist_v2):
+	def __map_playlist_images(details):
 		sources = []
 
-		for image in playlist_v2.get('images', {}).get('items', []):
-			c_sources = image.get('sources', [])
+		for image in (getattr(getattr(details, 'images', None), 'items', None) or []):
+			url = Spo.__largest_source_url(getattr(image, 'sources', None))
 
-			if c_sources:
-				big = max(
-					c_sources,
-					key = lambda source: source.get('width', 0)
-				)
-				sources.append({'url': big.get('url')})
+			if url:
+				sources.append({'url': url})
 
 		return sources
 
+	@staticmethod
+	def __reported_total(playlist):
+		content = getattr(playlist, 'content', None)
+
+		return getattr(content, 'total_count', None)
+
+	@classmethod
+	def __fetch_playlist(cls, ids):
+		# One scoped client per call: the runner owns an event loop in
+		# the calling thread, so it must not be shared between the
+		# download worker threads. The item pages are consumed inside
+		# the scope because the generator borrows it.
+		with SyncCatalogue() as client:
+			playlist = client.get_playlist(ids)
+			items = [
+				entry
+				for page in client.get_playlist_items(ids)
+				for entry in page
+			]
+
+		return playlist, items
+
+	@classmethod
+	def __fetch_playlist_with_retry(cls, ids):
+		best = None
+		last_error = None
+
+		for attempt in range(1, cls.__playlist_attempts + 1):
+			try:
+				playlist, items = cls.__fetch_playlist(ids)
+			except ValueError as error:
+				# A malformed id is rejected before any request, so a
+				# retry cannot change the answer.
+				logger.warning(
+					"Spotify playlist %s: rejected as an invalid link: %r",
+					ids, error
+				)
+				raise InvalidLink(ids)
+			except SpotAPIError as error:
+				last_error = error
+				logger.warning(
+					"Spotify playlist %s: attempt %d/%d failed: %r",
+					ids, attempt, cls.__playlist_attempts, error
+				)
+			else:
+				if best is None or len(items) > len(best[1]):
+					best = (playlist, items)
+
+				total = cls.__reported_total(playlist)
+
+				if total is None or len(items) >= total:
+					return best
+
+				logger.warning(
+					"Spotify playlist %s: attempt %d/%d returned a truncated "
+					"playlist (%d of %s items)",
+					ids, attempt, cls.__playlist_attempts, len(items), total
+				)
+
+			if attempt < cls.__playlist_attempts:
+				time.sleep(cls.__playlist_backoff)
+
+		if best is None:
+			logger.error(
+				"Spotify playlist %s: giving up after %d attempt(s): %r",
+				ids, cls.__playlist_attempts, last_error
+			)
+			raise InvalidLink(ids)
+
+		# A playlist can stay short for reasons a retry cannot fix (an
+		# entry unavailable in this market). That is not an outage, so
+		# it is reported as a warning and the best result is returned.
+		logger.warning(
+			"Spotify playlist %s: still truncated after %d attempt(s), "
+			"returning %d of %s items",
+			ids, cls.__playlist_attempts, len(best[1]), cls.__reported_total(best[0])
+		)
+
+		return best
+
 	@classmethod
 	def get_playlist(cls, ids):
-		client = cls.__get_playlist_client()
-		items = []
-		playlist_v2 = {}
-
-		try:
-			with cls.__playlist_lock:
-				client.playlist_id = ids
-				client.playlist_link = f"https://open.spotify.com/playlist/{ids}"
-
-				response = client.get_playlist_info(limit = cls.__playlist_page)
-				playlist_v2 = response['data']['playlistV2']
-				content = playlist_v2['content']
-				total = content.get('totalCount', 0)
-				items.extend(content.get('items', []))
-
-				# SpotAPI caps each GraphQL page at 343 tracks; keep
-				# requesting until the whole playlist is fetched.
-				offset = cls.__playlist_page
-
-				while offset < total:
-					response = client.get_playlist_info(
-						limit = cls.__playlist_page,
-						offset = offset
-					)
-					content = response['data']['playlistV2']['content']
-					items.extend(content.get('items', []))
-					offset += cls.__playlist_page
-		except (PlaylistError, KeyError, TypeError):
-			raise InvalidLink(ids)
+		# SpotAPI 2 serves the whole playlist (no 100-track cap) through
+		# anonymous web-player queries. Its typed models are mapped back
+		# to the spotipy shape the downloaders already consume.
+		playlist, items = cls.__fetch_playlist_with_retry(ids)
 
 		mapped_tracks = [
 			mapped for mapped in map(cls.__map_playlist_track, items)
 			if mapped is not None
 		]
 
-		owner = (playlist_v2.get('ownerV2') or {}).get('data') or {}
+		owner = getattr(getattr(playlist, 'owner_v2', None), 'data', None)
+		total = cls.__reported_total(playlist)
+
+		if total is None:
+			total = len(mapped_tracks)
 
 		playlist_json = {
-			'name': playlist_v2.get('name', 'Unknown'),
+			'name': getattr(playlist, 'name', None) or 'Unknown',
 			'owner': {
-				'display_name': owner.get('name', 'Unknown')
+				'display_name': getattr(owner, 'name', None) or 'Unknown'
 			},
 			'followers': {
-				'total': playlist_v2.get('followers', 0)
+				'total': getattr(playlist, 'followers', None) or 0
 			},
-			'images': cls.__map_playlist_images(playlist_v2),
+			'images': cls.__map_playlist_images(playlist),
 			'tracks': {
 				'items': mapped_tracks,
 				'total': total,

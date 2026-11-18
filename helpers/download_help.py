@@ -1,9 +1,8 @@
 #!/usr/bin/python3
 
-from time import sleep
+from time import sleep, time
 from os.path import isfile
 from telegram import ChatAction
-from sqlite3 import IntegrityError
 from telegram.error import BadRequest
 from deezloader.models.track import Track
 from deezloader.models.album import Album
@@ -11,10 +10,13 @@ from configs.set_configs import SetConfigs
 from deezloader.exceptions import TrackNotFound
 from deezloader.libutils.utils import request, what_kind
 from inlines.inline_keyboards import create_keyboard_artist
-from deezloader.deezloader.dee_api import API as deezer_API
+from deezloader.deezloader.cover_art import fetch_thumb
+from deezloader.__taggers__ import has_picture
 
-from .db_help import (
-	write_dwsongs, select_dwsongs, delete_dwsongs
+# One cache implementation for the bot: the dwsongs helpers live in utils.db,
+# which helpers.db_help also re-exports.
+from utils.db import (
+	write_db, select_dwsongs, delete_dwsongs
 )
 
 from deezloader.exceptions import (
@@ -32,14 +34,14 @@ from utils.thumb_utils import make_thumb_io
 from configs.customs import (
 	send_image_track_query, send_image_artist_query,
 	send_image_playlist_query, send_image_album_query,
-	album_too_long, track_too_long, empty_image_url
+	album_too_long, track_too_long
 )
 
 from utils.utils_data import (
 	track_spo_data, track_dee_data,
 	artist_dee_data, playlist_dee_data,
 	playlist_spo_data, album_dee_data,
-	album_spo_data, convert_spoty_to_dee_link_track
+	album_spo_data, convert_spoty_to_dee_track
 )
 
 from configs.bot_settings import (
@@ -51,18 +53,23 @@ from configs.bot_settings import (
 	progress_status_rate, is_thread
 )
 
-deezer_api = deezer_API()
 bot = SetConfigs.tg_bot_api.bot
 l_telegram, l_uploads, l_downloads, l_links = logging_bot()
+
+# How long a cover_ok == 0 row is served before another refresh attempt, so
+# permanently coverless content does not delete/download/upload on every request.
+COVER_RETRY_COOLDOWN = 3600.0
 
 def log_error(log, exc_info = False):
 	l_downloads.error(log, exc_info = exc_info)
 
-def write_db(track_md5, file_id, n_quality, chat_id, n_method_save):
+def delivered_has_cover(song_path, file_format):
+	# The flag follows the delivered file, not the fetched bytes. A file the
+	# parser cannot read reads as coverless instead of aborting the upload.
 	try:
-		write_dwsongs(track_md5, file_id, n_quality, chat_id, n_method_save)
-	except IntegrityError:
-		pass
+		return has_picture(song_path, file_format)
+	except Exception:
+		return False
 
 class DW:
 	def __init__(
@@ -149,7 +156,11 @@ class DW:
 		md5_image = track.md5_image
 
 		if self.__source == 1:
-			image_bytes1 = deezer_api.choose_img(md5_image, "90x90")
+			image_bytes1 = fetch_thumb(
+				md5_image,
+				fallback_url = getattr(track, "cover_fallback_url", None),
+				upc = track.tags.get("upc", "")
+			).data
 		elif self.__source == 2:
 			image_bytes1 = request(track.tags['image3']).content
 
@@ -169,7 +180,7 @@ class DW:
 				text = f"Cannot download {track.link} :("
 			)
 
-			return
+			return False
 
 		track_size = get_size(c_path, "gb")
 
@@ -181,7 +192,7 @@ class DW:
 					, CURRENT {track_size} GB :("
 			)
 
-			return
+			return False
 
 		if track_quality != self.__n_quality:
 			bot.send_message(
@@ -205,16 +216,21 @@ class DW:
 		if file_id.audio:
 			file_id = file_id.audio.file_id
 		else:
-			return
+			return False
 
 		write_db(
 			track_md5, file_id,
-			track_quality, self.__chat_id, self.__method_save
+			track_quality, self.__chat_id, self.__method_save,
+			1 if delivered_has_cover(c_path, f_format) else 0
 		)
 
 		self.__upload_audio(file_id)
 
-	def __download_track(self, url):
+		# Delivery signal: True only when the upload actually landed; the
+		# cover-refresh guard serves the cached file_id when it did not.
+		return True
+
+	def __download_track(self, url, cover_fallback_url = None):
 		try:
 			if "deezer" in url:
 				track = SetConfigs.deez_api.download_trackdee(
@@ -223,7 +239,8 @@ class DW:
 					quality_download = self.__quality,
 					recursive_quality = recursive_quality,
 					recursive_download = recursive_download,
-					method_save = self.__method_save
+					method_save = self.__method_save,
+					cover_fallback_url = cover_fallback_url
 				)
 
 			elif "spotify" in url:
@@ -244,19 +261,21 @@ class DW:
 				text = f"Cannot download {url} :("
 			)
 
-			return
+			return False
 
 		progress_message_id = bot.send_message(
 			chat_id = self.__chat_id,
 			text = f"Starting uploading {track.song_name} ..."
 		).message_id
 
-		self.__upload_audio_track(track)
+		delivered = self.__upload_audio_track(track)
 
 		bot.delete_message(
 			chat_id = self.__chat_id,
 			message_id = progress_message_id
 		)
+
+		return delivered
 
 	def __progress_status(self, current, total, times, album_name):
 		c_time = times[0]
@@ -301,7 +320,12 @@ class DW:
 		md5_image = album.md5_image
 
 		if self.__source == 1:
-			image_bytes2 = deezer_api.choose_img(md5_image, "320x320")
+			image_bytes2 = fetch_thumb(
+				md5_image,
+				fallback_url = getattr(album, "cover_fallback_url", None),
+				upc = album.upc or "",
+				size = "320x320"
+			).data
 		elif self.__source == 2:
 			image_bytes2 = request(album.tags['image2']).content
 
@@ -320,12 +344,13 @@ class DW:
 					, CURRENT {zip_size} GB :("
 			)
 
+			# TOO BIG rows keep cover_ok NULL: no upload happened
 			write_db(
 				album_md5, "TOO BIG",
 				album_quality, self.__chat_id, self.__method_save
 			)
 
-			return
+			return False
 
 		file_id = SetConfigs.tg_user_api.send_document(
 			chat_id = bunker_channel,
@@ -337,10 +362,15 @@ class DW:
 
 		write_db(
 			album_md5, file_id,
-			album_quality, self.__chat_id, self.__method_save
+			album_quality, self.__chat_id, self.__method_save,
+			# the zip's artwork is the album image carried by the document
+			1 if album.image else 0
 		)
 
 		self.__upload_zip(file_id)
+
+		# Delivery signal: the zip really landed in the bunker channel.
+		return True
 
 	def __upload_audio_album(
 		self,
@@ -417,7 +447,8 @@ class DW:
 
 			write_db(
 				track_md5, file_id,
-				track_quality, self.__chat_id, self.__method_save
+				track_quality, self.__chat_id, self.__method_save,
+				1 if delivered_has_cover(c_path, f_format) else 0
 			)
 
 			self.__upload_audio(file_id)
@@ -427,7 +458,7 @@ class DW:
 				text = f"Cannot download {track.song_name} :("
 			)
 
-	def __download_album(self, url):
+	def __download_album(self, url, cover_fallback_url = None):
 		progress_message_id = bot.send_message(
 			chat_id = self.__chat_id,
 			text = "Downloading album, this may take a while..."
@@ -442,7 +473,8 @@ class DW:
 					recursive_quality = recursive_quality,
 					recursive_download = recursive_download,
 					make_zip = SetConfigs.create_zips,
-					method_save = self.__method_save
+					method_save = self.__method_save,
+					cover_fallback_url = cover_fallback_url
 				)
 
 			elif "spotify" in url:
@@ -471,7 +503,11 @@ class DW:
 		nb_tracks = album.nb_tracks
 
 		if self.__source == 1:
-			image_bytes1 = deezer_api.choose_img(md5_image, "90x90")
+			image_bytes1 = fetch_thumb(
+				md5_image,
+				fallback_url = getattr(album, "cover_fallback_url", None),
+				upc = album.upc or ""
+			).data
 		elif self.__source == 2:
 			image_bytes1 = request(album.tags['image3']).content
 
@@ -500,12 +536,15 @@ class DW:
 		)
 
 		if SetConfigs.create_zips:
-			self.__upload_zip_album(album)
+			return self.__upload_zip_album(album)
 		else:
+			# no zip is uploaded here either: keep the row legacy-trusted
 			write_db(
 				album.album_md5, "TOO BIG",
 				self.__quality, self.__chat_id, self.__method_save
 			)
+
+			return False
 
 	def __send_for_debug(self, link, error):
 		err_str = f"ERROR WITH THIS LINK {link} {self.__quality}"
@@ -525,41 +564,90 @@ class DW:
 		log_error(error, exc_info = True)
 		log_error(err_str)
 
-	def __check_track(self, link):
+	def __cover_cooldown_active(self, cover_attempted_at):
+		if cover_attempted_at is None:
+			return False
+
+		return time() - cover_attempted_at < COVER_RETRY_COOLDOWN
+
+	def __serve_or_refresh(self, link, match, recover, serve, retry):
+		# One rule for all three cache sites: a NULL (legacy) or covered row is
+		# served as before; a cover_ok == 0 row is refreshed in place, keeping
+		# the cached file_id servable until the replacement lands.
+		# Returns (delivered, refreshed).
+		file_id, cover_ok, cover_attempted_at = match
+
+		if cover_ok == 0:
+			if self.__cover_cooldown_active(cover_attempted_at):
+				l_downloads.info(
+					f"cover refresh deferred for {link} (cooldown)"
+				)
+			else:
+				l_downloads.info(f"cover refresh attempted for {link}")
+
+				try:
+					# the recovery upload writes the replacement row itself and reports True
+					# only when it landed: a non-raising recovery is not success
+					if recover():
+						return True, True
+				except Exception as error:
+					l_downloads.warning(
+						f"cover refresh failed for {link}: {error!r}, serving cached file_id"
+					)
+
+					# fall through: the old file_id is still servable
+
+		try:
+			serve(file_id)
+
+			return True, False
+		except BadRequest:
+			delete_dwsongs(file_id)
+
+			return bool(retry()), False
+
+	def __check_track(self, link, cover_fallback_url = None):
 		self.__set_quality(link)
 		link_path = get_url_path(link)
 		match = select_dwsongs(link_path, self.__n_quality, self.__method_save)
 
 		if match:
-			file_id = match[0]
-
-			try:
-				self.__upload_audio(file_id)
-			except BadRequest:
-				delete_dwsongs(file_id)
-				self.__check_track(link)
+			# True when the user got audio (landed replacement or cached file_id).
+			return self.__serve_or_refresh(
+				link, match,
+				lambda: self.__download_track(link, cover_fallback_url = cover_fallback_url),
+				lambda file_id: self.__upload_audio(file_id),
+				lambda: self.__check_track(link, cover_fallback_url = cover_fallback_url)
+			)[0]
 		else:
 			try:
-				self.__download_track(link)
+				return self.__download_track(link, cover_fallback_url = cover_fallback_url)
 			except Exception as error:
 				self.__send_for_debug(link, error)
 
-	def __check_album(self, link, tracks):
+				return False
+
+	def __check_album(self, link, tracks, cover_fallback_url = None):
 		self.__set_quality(link)
 		link_path = get_url_path(link)
 		match = select_dwsongs(link_path, self.__n_quality, self.__method_save)
 
 		if match:
-			file_id = match[0]
+			# TOO BIG marks a zip that was never uploaded: nothing to serve
+			delivered = False
+			refreshed = False
 
-			if file_id != "TOO BIG":
-				try:
-					self.__upload_zip(file_id)
-				except BadRequest:
-					delete_dwsongs(file_id)
-					self.__check_album(link, tracks)
+			if match[0] != "TOO BIG":
+				delivered, refreshed = self.__serve_or_refresh(
+					link, match,
+					lambda: self.__download_album(link, cover_fallback_url = cover_fallback_url),
+					lambda zip_id: self.__upload_zip(zip_id),
+					lambda: self.__check_album(link, tracks, cover_fallback_url = cover_fallback_url)
+				)
 
-			if self.__send_to_user_tracks:
+			# a refreshed album was downloaded whole, tracks included: the per-track
+			# loop would upload every one of them a second time
+			if self.__send_to_user_tracks and not refreshed:
 				for track in tracks:
 					if self.__source == 1:
 						c_link = track['link']
@@ -577,40 +665,43 @@ class DW:
 
 						continue
 
-					c_file_id = c_match[0]
+					self.__serve_or_refresh(
+						c_link, c_match,
+						lambda: self.__check_track(c_link, cover_fallback_url = cover_fallback_url),
+						lambda track_id: self.__upload_audio(track_id),
+						lambda: self.__check_track(c_link, cover_fallback_url = cover_fallback_url)
+					)
 
-					try:
-						self.__upload_audio(c_file_id)
-					except BadRequest:
-						delete_dwsongs(c_file_id)
-						self.__check_track(c_link)
+			return delivered
 		else:
 			try:
-				self.__download_album(link)
+				return self.__download_album(link, cover_fallback_url = cover_fallback_url)
 			except Exception as error:
 				self.__send_for_debug(link, error)
+
+				return False
 
 	def __send_photo(
 		self, chat_id,
 		image_url, caption,
 		reply_markup = None
 	):
+		# image_url may be None or dead: Telegram answers BadRequest, and a
+		# malformed value raises ValueError. Fall back to a text Message so the
+		# caller's .message_id keeps working.
 		try:
-			data = bot.send_photo(
+			return bot.send_photo(
 				chat_id = chat_id,
 				photo = image_url,
 				caption = caption,
 				reply_markup = reply_markup
 			)
-		except BadRequest:
-			data = bot.send_photo(
+		except (BadRequest, ValueError):
+			return bot.send_message(
 				chat_id = chat_id,
-				photo = empty_image_url,
-				caption = caption,
+				text = caption,
 				reply_markup = reply_markup
 			)
-
-		return data
 
 	def download(self, link):
 		try:
@@ -624,7 +715,8 @@ class DW:
 					try:
 						image_url, name,\
 							artist, album,\
-								date, link_dee, duration = track_spo_data(link, self.__conv)
+								date, link_dee, duration,\
+									cover_fallback_url = track_spo_data(link, self.__conv)
 					except TrackNotFound:
 						bot.send_message(
 							chat_id = self.__chat_id,
@@ -633,10 +725,16 @@ class DW:
 
 						return
 
+					# The Spotify carrier is a live CDN URL; the search card's image URL is a
+					# dead-host template for the same album.
+					image_url = cover_fallback_url or image_url
+
 				elif "deezer.com" in link:
 					image_url, name,\
 						artist, album,\
 							date, link_dee, duration = track_dee_data(link)
+
+					cover_fallback_url = None
 
 				if duration > seconds_limits_track:
 					bot.send_message(
@@ -660,7 +758,7 @@ class DW:
 					self.__chat_id, image_url, caption
 				).message_id
 
-				self.__check_track(link_dee)
+				self.__check_track(link_dee, cover_fallback_url = cover_fallback_url)
 
 			elif "artist/" in link:
 				stat = 0
@@ -692,13 +790,19 @@ class DW:
 					image_url, album,\
 						artist, date,\
 						nb_tracks, tracks,\
-						duration, link_dee = album_spo_data(link, self.__conv)
+						duration, link_dee,\
+							cover_fallback_url = album_spo_data(link, self.__conv)
+
+					# Same as the track card: prefer the live Spotify CDN URL.
+					image_url = cover_fallback_url or image_url
 
 				elif "deezer.com" in link:
 					image_url, album,\
 						artist, date,\
 						nb_tracks, tracks,\
 						duration, link_dee = album_dee_data(link)
+
+					cover_fallback_url = None
 
 				if duration > seconds_limits_album:
 					bot.send_message(
@@ -722,7 +826,7 @@ class DW:
 					self.__chat_id, image_url, caption
 				).message_id
 
-				self.__check_album(link_dee, tracks)
+				self.__check_album(link_dee, tracks, cover_fallback_url = cover_fallback_url)
 
 			elif "playlist/" in link:
 				if "spotify.com" in link:
@@ -770,6 +874,8 @@ class DW:
 				for track, index in zip(
 					tracks, range(max_song_per_playlist)
 				):
+					c_cover = None
+
 					if mode == "deezer":
 						c_link = track['link']
 
@@ -793,7 +899,7 @@ class DW:
 
 						if self.__conv:
 							try:
-								c_link = convert_spoty_to_dee_link_track(c_link)
+								c_link, c_cover = convert_spoty_to_dee_track(c_link)
 							except (NoDataApi, TrackNotFound):
 								bot.send_message(
 									chat_id = self.__chat_id,
@@ -802,7 +908,7 @@ class DW:
 
 								continue
 
-					self.__check_track(c_link)
+					self.__check_track(c_link, cover_fallback_url = c_cover)
 
 			else:
 				bot.send_message(

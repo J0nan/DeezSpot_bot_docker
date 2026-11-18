@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 import os
-from logging import ERROR, INFO
+from logging import ERROR, INFO, FileHandler, Formatter, getLogger
 from utils.converter_bytes import convert_bytes_to
 from telegram.constants import MAX_FILESIZE_DOWNLOAD
 
@@ -21,6 +21,32 @@ logger_names = [
 	("downloads", ERROR, log_downloads),
 	("links", INFO, log_links)
 ]
+
+# The vendored deezloader loggers have no handler of their own; register their
+# parent on the bot download log, at INFO so cover fallbacks reach
+# downloads.log instead of being dropped by the `downloads` ERROR level.
+cover_logger_name = "deezloader"
+cover_log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+def register_cover_logger():
+	logger = getLogger(cover_logger_name)
+	# delay=True: this runs before logs/ exists (utils.check_config_bot creates
+	# it), so the file opens on the first cover record instead of here.
+	downloads_suffix = log_downloads.replace("/", os.sep)
+
+	for handler in logger.handlers:
+		if (
+			isinstance(handler, FileHandler)
+			and handler.baseFilename.endswith(downloads_suffix)
+		):
+			return logger
+
+	handler = FileHandler(log_downloads, delay = True)
+	handler.setFormatter(Formatter(cover_log_format))
+	logger.setLevel(INFO)
+	logger.addHandler(handler)
+
+	return logger
 
 # flood guard: FLOOD_MESSAGE_LIMIT messages in a row, each less than
 # FLOOD_WINDOW_SECONDS after the previous one, take one strike; a chat that
@@ -64,3 +90,7 @@ recorded_file_max_size = int(
 		MAX_FILESIZE_DOWNLOAD, "mb"
 	)
 )
+
+# Registered last: this module can fail while its settings are missing, and a
+# partial import must not leak a handler.
+register_cover_logger()

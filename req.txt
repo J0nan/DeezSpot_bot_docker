@@ -6,5 +6,4 @@ libtmux
 matplotlib
 git+https://github.com/kokarare1212/librespot-python
 ffmpeg
-git+https://github.com/Aran404/SpotAPI.git
-websockets
+spotapi>=2.1,<3

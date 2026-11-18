@@ -56,7 +56,8 @@ class DeeLogin:
 		recursive_quality = stock_recursive_quality,
 		recursive_download = stock_recursive_download,
 		not_interface = stock_not_interface,
-		method_save = method_save
+		method_save = method_save,
+		cover_fallback_url = None
 	) -> Track:
 
 		link_is_valid(link_track)
@@ -84,6 +85,7 @@ class DeeLogin:
 		preferences.recursive_download = recursive_download
 		preferences.not_interface = not_interface
 		preferences.method_save = method_save
+		preferences.cover_fallback_url = cover_fallback_url
 
 		track = DW_TRACK(preferences).dw()
 
@@ -97,7 +99,8 @@ class DeeLogin:
 		recursive_download = stock_recursive_download,
 		not_interface = stock_not_interface,
 		make_zip = stock_zip,
-		method_save = method_save
+		method_save = method_save,
+		cover_fallback_url = None
 	) -> Album:
 
 		link_is_valid(link_album)
@@ -123,6 +126,7 @@ class DeeLogin:
 		preferences.not_interface = not_interface
 		preferences.method_save = method_save
 		preferences.make_zip = make_zip
+		preferences.cover_fallback_url = cover_fallback_url
 
 		album = DW_ALBUM(preferences).dw()
 
@@ -204,7 +208,7 @@ class DeeLogin:
 
 		return names
 
-	def convert_spoty_to_dee_link_track(self, link_track):
+	def convert_spoty_to_dee_track(self, link_track):
 		link_is_valid(link_track)
 		ids = get_ids(link_track)
 
@@ -224,7 +228,15 @@ class DeeLogin:
 		track_json_dee = API.get_track(isrc)
 		track_link_dee = track_json_dee['link']
 
-		return track_link_dee
+		# The Spotify album art is already in this payload; carrying it costs no
+		# extra API call.
+		album_images = (track_json.get('album') or {}).get('images') or []
+		image_url = album_images[0].get('url') if album_images else None
+
+		return track_link_dee, image_url
+
+	def convert_spoty_to_dee_link_track(self, link_track):
+		return self.convert_spoty_to_dee_track(link_track)[0]
 
 	def download_trackspo(
 		self, link_track,
@@ -236,7 +248,7 @@ class DeeLogin:
 		method_save = method_save
 	) -> Track:
 
-		track_link_dee = self.convert_spoty_to_dee_link_track(link_track)
+		track_link_dee, cover_fallback_url = self.convert_spoty_to_dee_track(link_track)
 
 		track = self.download_trackdee(
 			track_link_dee,
@@ -245,17 +257,22 @@ class DeeLogin:
 			recursive_quality = recursive_quality,
 			recursive_download = recursive_download,
 			not_interface = not_interface,
-			method_save = method_save
+			method_save = method_save,
+			cover_fallback_url = cover_fallback_url
 		)
 
 		return track
 
-	def convert_spoty_to_dee_link_album(self, link_album):
+	def convert_spoty_to_dee_album(self, link_album):
 		link_is_valid(link_album)
 		ids = get_ids(link_album)
 		link_dee = None
 
 		tracks = Spo.get_album(ids)
+
+		# Carry the Spotify album art already present in this payload.
+		album_images = tracks.get('images') or []
+		image_url = album_images[0].get('url') if album_images else None
 
 		try:
 			external_ids = tracks['external_ids']
@@ -305,7 +322,10 @@ class DeeLogin:
 			if tot != tot2:
 				raise AlbumNotFound(link_album)
 
-		return link_dee
+		return link_dee, image_url
+
+	def convert_spoty_to_dee_link_album(self, link_album):
+		return self.convert_spoty_to_dee_album(link_album)[0]
 
 	def download_albumspo(
 		self, link_album,
@@ -318,13 +338,14 @@ class DeeLogin:
 		method_save = method_save
 	) -> Album:
 
-		link_dee = self.convert_spoty_to_dee_link_album(link_album)
+		link_dee, cover_fallback_url = self.convert_spoty_to_dee_album(link_album)
 
 		album = self.download_albumdee(
 			link_dee, output_dir,
 			quality_download, recursive_quality,
 			recursive_download, not_interface,
-			make_zip, method_save
+			make_zip, method_save,
+			cover_fallback_url = cover_fallback_url
 		)
 
 		return album
