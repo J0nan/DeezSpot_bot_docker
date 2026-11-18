@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 import os
-from logging import ERROR, INFO
+from logging import ERROR, INFO, FileHandler, Formatter, getLogger
 from utils.converter_bytes import convert_bytes_to
 from telegram.constants import MAX_FILESIZE_DOWNLOAD
 
@@ -21,6 +21,36 @@ logger_names = [
 	("downloads", ERROR, log_downloads),
 	("links", INFO, log_links)
 ]
+
+# The vendored deezloader package logs on its own names: `deezloader.__taggers__`
+# warns "no cover art available" and `deezloader.cover_art` emits the cover
+# reason codes. Nothing registered those loggers, so the records reached docker
+# stderr only. Register the `deezloader` parent logger on the same formatter and
+# target as the bot download log; the children propagate into it.
+# Level INFO -- not the `downloads` logger's ERROR -- because a fallback rescue
+# is an INFO event (S5/S8) and would otherwise never reach downloads.log.
+cover_logger_name = "deezloader"
+cover_log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+def register_cover_logger():
+	logger = getLogger(cover_logger_name)
+	# delay=True: this runs at import, before utils.check_config_bot() creates
+	# logs/, so the file is opened on the first cover record instead of here.
+	downloads_suffix = log_downloads.replace("/", os.sep)
+
+	for handler in logger.handlers:
+		if (
+			isinstance(handler, FileHandler)
+			and handler.baseFilename.endswith(downloads_suffix)
+		):
+			return logger
+
+	handler = FileHandler(log_downloads, delay = True)
+	handler.setFormatter(Formatter(cover_log_format))
+	logger.setLevel(INFO)
+	logger.addHandler(handler)
+
+	return logger
 
 # flood guard: FLOOD_MESSAGE_LIMIT messages in a row, each less than
 # FLOOD_WINDOW_SECONDS after the previous one, take one strike; a chat that
@@ -64,3 +94,8 @@ recorded_file_max_size = int(
 		MAX_FILESIZE_DOWNLOAD, "mb"
 	)
 )
+
+# Registered last: this module is also imported (and may fail) while the
+# settings it needs are missing, so it only attaches the deezloader log
+# handler once it is fully initialised.
+register_cover_logger()

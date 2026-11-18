@@ -26,8 +26,14 @@ every cover consumer:
   `thumb:` negative-cache key space.
 - Magic-byte + minimum-size validation: HTML/JSON error bodies are never
   embedded as artwork.
+- Reason-code logging on the `deezloader.cover_art` logger: INFO
+  `fallback_used` when a fallback rung saves a track, WARNING
+  `all_sources_failed` plus the last source detail when nothing answers. The
+  bot registers the `deezloader` parent logger into logs/downloads.log
+  (configs/bot_settings.py).
 """
 
+import logging
 import random
 import time
 from urllib.parse import urlsplit
@@ -52,6 +58,10 @@ COVER_URL = "https://cdn-images.dzcdn.net/images/cover/%s/%s-000000-80-0-0.jpg"
 ITUNES_LOOKUP = "https://itunes.apple.com/lookup?upc=%s&entity=album"
 ITUNES_ART_SMALL = "100x100bb"
 ITUNES_ART_LARGE = "600x600bb"
+
+# The bot registers the `deezloader` parent logger (configs/bot_settings.py),
+# so these reason-code lines reach logs/downloads.log.
+logger = logging.getLogger("deezloader.cover_art")
 
 # Clock seams so tests can drive time without waiting.
 _now = time.time
@@ -185,6 +195,17 @@ def _itunes_cover(upc, art_size = ITUNES_ART_LARGE):
 
 	return _get_image(artwork.replace(ITUNES_ART_SMALL, art_size))
 
+def _fallback_result(key, data, source):
+	"""Build the CoverResult a saved track gets and log the rescue line."""
+
+	result = CoverResult(data, source, "fallback_used")
+	logger.info(
+		"cover fallback used key=%s source=%s reason=%s",
+		key, result.source, result.reason
+	)
+
+	return result
+
 def _run_chain(key, deezer_urls, fallback_url, upc, art_size):
 	"""Walk Deezer -> Spotify -> iTunes in order; cache the total failure.
 
@@ -206,7 +227,7 @@ def _run_chain(key, deezer_urls, fallback_url, upc, art_size):
 		data, fail = _get_image(fallback_url)
 
 		if data:
-			return CoverResult(data, SPOTIFY, "fallback_used")
+			return _fallback_result(key, data, SPOTIFY)
 
 		detail = fail or detail
 
@@ -214,11 +235,15 @@ def _run_chain(key, deezer_urls, fallback_url, upc, art_size):
 		data, fail = _itunes_cover(upc, art_size)
 
 		if data:
-			return CoverResult(data, ITUNES, "fallback_used")
+			return _fallback_result(key, data, ITUNES)
 
 		detail = fail or detail
 
 	_negative_cache[key] = (_now() + NEGATIVE_TTL, "all_sources_failed")
+	logger.warning(
+		"cover failed key=%s reason=%s detail=%s",
+		key, "all_sources_failed", detail
+	)
 
 	return CoverResult(reason = "all_sources_failed", detail = detail)
 
