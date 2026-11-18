@@ -13,8 +13,8 @@ from inlines.inline_keyboards import create_keyboard_artist
 from deezloader.deezloader.cover_art import fetch_thumb
 from deezloader.__taggers__ import has_picture
 
-# One cache implementation for the whole bot: the dwsongs helpers live in
-# utils.db, which helpers.db_help also re-exports.
+# One cache implementation for the bot: the dwsongs helpers live in utils.db,
+# which helpers.db_help also re-exports.
 from utils.db import (
 	write_db, select_dwsongs, delete_dwsongs
 )
@@ -56,17 +56,15 @@ from configs.bot_settings import (
 bot = SetConfigs.tg_bot_api.bot
 l_telegram, l_uploads, l_downloads, l_links = logging_bot()
 
-# How long a cover_ok == 0 row is served before another refresh attempt.
-# Permanently coverless content would otherwise delete, download, upload and
-# stamp 0 again on every request, forever.
+# How long a cover_ok == 0 row is served before another refresh attempt, so
+# permanently coverless content does not delete/download/upload on every request.
 COVER_RETRY_COOLDOWN = 3600.0
 
 def log_error(log, exc_info = False):
 	l_downloads.error(log, exc_info = exc_info)
 
 def delivered_has_cover(song_path, file_format):
-	# The presence flag follows the delivered file, not the fetched bytes: a
-	# covered file uploaded during a CDN outage is still covered. A file the
+	# The flag follows the delivered file, not the fetched bytes. A file the
 	# parser cannot read reads as coverless instead of aborting the upload.
 	try:
 		return has_picture(song_path, file_format)
@@ -228,7 +226,7 @@ class DW:
 
 		self.__upload_audio(file_id)
 
-		# Delivery signal: True only when the upload actually landed. The
+		# Delivery signal: True only when the upload actually landed; the
 		# cover-refresh guard serves the cached file_id when it did not.
 		return True
 
@@ -573,14 +571,10 @@ class DW:
 		return time() - cover_attempted_at < COVER_RETRY_COOLDOWN
 
 	def __serve_or_refresh(self, link, match, recover, serve, retry):
-		# One rule for all three cache sites. A NULL (legacy) or covered row
-		# is served exactly as before: only a file_id Telegram proves dead is
-		# deleted. A cover_ok == 0 row is refreshed in place -- the stored
-		# file_id stays servable until the replacement upload succeeds -- and
-		# the cooldown bounds retries for permanently coverless content.
-		# Returns (delivered, refreshed): delivered is True when the user got
-		# audio (a landed replacement OR the cached file_id); refreshed is True
-		# only when a whole replacement landed (the album loop-skip signal).
+		# One rule for all three cache sites: a NULL (legacy) or covered row is
+		# served as before; a cover_ok == 0 row is refreshed in place, keeping
+		# the cached file_id servable until the replacement lands.
+		# Returns (delivered, refreshed).
 		file_id, cover_ok, cover_attempted_at = match
 
 		if cover_ok == 0:
@@ -592,9 +586,8 @@ class DW:
 				l_downloads.info(f"cover refresh attempted for {link}")
 
 				try:
-					# the recovery upload writes the replacement row itself and
-					# reports True only when that upload really landed: a
-					# recovery that delivered nothing is a failed recovery
+					# the recovery upload writes the replacement row itself and reports True
+					# only when it landed: a non-raising recovery is not success
 					if recover():
 						return True, True
 				except Exception as error:
@@ -619,8 +612,7 @@ class DW:
 		match = select_dwsongs(link_path, self.__n_quality, self.__method_save)
 
 		if match:
-			# True when the user got audio (landed replacement or cached
-			# file_id); the cover guard is its only consumer.
+			# True when the user got audio (landed replacement or cached file_id).
 			return self.__serve_or_refresh(
 				link, match,
 				lambda: self.__download_track(link, cover_fallback_url = cover_fallback_url),
@@ -653,8 +645,8 @@ class DW:
 					lambda: self.__check_album(link, tracks, cover_fallback_url = cover_fallback_url)
 				)
 
-			# a refreshed album was downloaded whole, tracks included: the
-			# per-track loop would upload every one of them a second time
+			# a refreshed album was downloaded whole, tracks included: the per-track
+			# loop would upload every one of them a second time
 			if self.__send_to_user_tracks and not refreshed:
 				for track in tracks:
 					if self.__source == 1:
@@ -694,9 +686,8 @@ class DW:
 		image_url, caption,
 		reply_markup = None
 	):
-		# image_url may be None or dead (playlist cards without a cover, a
-		# refused CDN URL): Telegram answers BadRequest, and a malformed value
-		# raises ValueError. Fall back to a plain text card -- a Message, so the
+		# image_url may be None or dead: Telegram answers BadRequest, and a
+		# malformed value raises ValueError. Fall back to a text Message so the
 		# caller's .message_id keeps working.
 		try:
 			return bot.send_photo(
@@ -734,8 +725,8 @@ class DW:
 
 						return
 
-					# The Spotify carrier is a live CDN URL; the search card's
-					# image URL is a dead-host template for the same album.
+					# The Spotify carrier is a live CDN URL; the search card's image URL is a
+					# dead-host template for the same album.
 					image_url = cover_fallback_url or image_url
 
 				elif "deezer.com" in link:

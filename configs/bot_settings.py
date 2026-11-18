@@ -22,20 +22,16 @@ logger_names = [
 	("links", INFO, log_links)
 ]
 
-# The vendored deezloader package logs on its own names: `deezloader.__taggers__`
-# warns "no cover art available" and `deezloader.cover_art` emits the cover
-# reason codes. Nothing registered those loggers, so the records reached docker
-# stderr only. Register the `deezloader` parent logger on the same formatter and
-# target as the bot download log; the children propagate into it.
-# Level INFO -- not the `downloads` logger's ERROR -- because a fallback rescue
-# is an INFO event (S5/S8) and would otherwise never reach downloads.log.
+# The vendored deezloader loggers have no handler of their own; register their
+# parent on the bot download log, at INFO so cover fallbacks reach
+# downloads.log instead of being dropped by the `downloads` ERROR level.
 cover_logger_name = "deezloader"
 cover_log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
 def register_cover_logger():
 	logger = getLogger(cover_logger_name)
-	# delay=True: this runs at import, before utils.check_config_bot() creates
-	# logs/, so the file is opened on the first cover record instead of here.
+	# delay=True: this runs before logs/ exists (utils.check_config_bot creates
+	# it), so the file opens on the first cover record instead of here.
 	downloads_suffix = log_downloads.replace("/", os.sep)
 
 	for handler in logger.handlers:
@@ -95,7 +91,6 @@ recorded_file_max_size = int(
 	)
 )
 
-# Registered last: this module is also imported (and may fail) while the
-# settings it needs are missing, so it only attaches the deezloader log
-# handler once it is fully initialised.
+# Registered last: this module can fail while its settings are missing, and a
+# partial import must not leak a handler.
 register_cover_logger()

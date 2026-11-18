@@ -18,10 +18,8 @@ from mutagen.id3 import (
 
 logger = logging.getLogger(__name__)
 
-# The comment count check_track and has_complete_tags share. check_track
-# requires this many tags AND a picture; has_complete_tags answers the tag
-# question alone, so the downloader can re-tag in place instead of pulling
-# the audio again.
+# Shared tag count: check_track also needs a picture, has_complete_tags answers
+# the tag question alone so the downloader can re-tag in place.
 MIN_COMPLETE_TAGS = 14
 
 def __detect_mime(image):
@@ -354,9 +352,8 @@ def write_tags(track: Track):
 		__write_mp3(song, song_metadata)
 
 def __open_tags(song, f_format):
-	# One opener for every probe: the format dispatch lives here only, so
-	# check_track and has_complete_tags cannot drift apart. A file without
-	# an ID3 header yields None.
+	# One opener for every probe, so check_track and has_complete_tags cannot
+	# drift apart. A file without an ID3 header yields None.
 	if f_format == ".flac":
 		return FLAC(song)
 
@@ -378,9 +375,8 @@ def __has_picture(tags, f_format):
 	return len(tags.getall("APIC")) > 0
 
 def has_picture(track_or_path, file_format = None):
-	# Public probe used where the delivered file, not the fetch result, is
-	# the truth. Accepts a Track-like object or a bare path; the private
-	# __has_picture keeps doing the format dispatch.
+	# Public probe for the delivered file rather than the fetch result; accepts a
+	# Track-like object or a bare path, and __has_picture does the dispatch.
 	if isinstance(track_or_path, str):
 		song_path = track_or_path
 
@@ -410,9 +406,8 @@ def check_track(track: Track):
 	return l_tags >= MIN_COMPLETE_TAGS and __has_picture(tags, track.file_format)
 
 def has_complete_tags(track: Track):
-	# The legacy tag-count answer, without the picture requirement: it tells
-	# download_try that the audio is already complete and only artwork is
-	# missing, so the file can be re-tagged instead of downloaded again.
+	# The legacy tag-count answer without the picture requirement: it tells
+	# download_try the audio is complete and only artwork is missing.
 	tags = __open_tags(track.song_path, track.file_format)
 
 	if tags is None:

@@ -1,21 +1,8 @@
 #!/usr/bin/python3
 
-"""The dwsongs cache helpers, isolated so they stay importable and testable.
-
-helpers.db_help imports configs.bot_settings, which pulls the telegram stack;
-the bot image runs Python 3.11 with a working python-telegram-bot 13.x, but a
-local 3.12 checkout cannot import it. These helpers depend on nothing but the
-stdlib, so they live here and the bot helpers reuse them. The table layout,
-query text and function bodies are the ones helpers.db_help used, plus two
-additive nullable columns:
-
-	cover_ok            NULL -> legacy row, trusted (no mass re-upload)
-	                       1 -> the stored file carries artwork
-	                       0 -> the stored file has no artwork, the caller
-	                            refreshes it in place
-	cover_attempted_at  epoch seconds of the last refresh attempt, stamped
-	                    only on cover_ok == 0 writes, so a permanently
-	                    coverless file is retried on a cooldown
+"""The dwsongs cache helpers, kept stdlib-only so the bot helpers and the tests
+share one implementation. Two nullable dwsongs columns are added: cover_ok
+(NULL legacy/trusted, 1 covered, 0 coverless) and cover_attempted_at.
 """
 
 from os import environ
@@ -105,13 +92,12 @@ def initialize_db():
 def write_dwsongs(link, file_id, quality, chat_id, method_save=method_save, cover_ok=None):
 	con = db_connect(db_name)
 
-	# write_db swallows IntegrityError on a duplicate row, so the connection
-	# is closed in a finally: otherwise the failed handle outlives the call
+	# write_db swallows IntegrityError on a duplicate row, so the connection is
+	# closed in a finally or the failed handle outlives the call
 	try:
 		cur = con.cursor()
 		# atomic replace: one transaction drops the row this key owns and
-		# inserts the newest upload, so a successful write always lands the
-		# new file_id and a failed one leaves the old row untouched
+		# inserts the newest upload, so a failed write leaves the old row
 		query_delete_dwsongs = "DELETE FROM dwsongs WHERE link = ? AND quality = ? AND method_save = ?"
 		query_insert_dwsongs = "INSERT INTO dwsongs(link, file_id, quality, chat_id, method_save, cover_ok, cover_attempted_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
 

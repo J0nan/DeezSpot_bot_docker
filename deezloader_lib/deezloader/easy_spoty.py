@@ -60,9 +60,8 @@ class Spo:
 
 	@staticmethod
 	def __largest_source_url(sources):
-		# Port of the playlist-level rule: one artwork group can offer
-		# several sizes, and the largest one is the url worth handing on.
-		# No sources, or a largest source without a url, means "no image".
+		# The playlist-level rule: of several sizes in one artwork group, the
+		# largest url is the one worth handing on; none means "no image".
 		sources = sources or []
 
 		if not sources:
@@ -77,11 +76,9 @@ class Spo:
 
 	@staticmethod
 	def __map_track_album(item):
-		# SpotAPI 2 carries the occurrence's album artwork on the track
-		# itself (album_of_track.cover_art.sources); spotipy exposes it as
-		# track['album']['images'], so map it there when the payload has
-		# it. Empty artwork maps to nothing at all, keeping the returned
-		# track byte-identical to the shape the downloaders consume today.
+		# SpotAPI 2 carries the track's album artwork on the track itself; map it
+		# to track['album']['images'] to match the spotipy shape. No artwork maps
+		# to nothing, keeping the returned track byte-identical.
 		album = getattr(item, 'album_of_track', None)
 		cover_art = getattr(album, 'cover_art', None)
 		url = Spo.__largest_source_url(getattr(cover_art, 'sources', None))

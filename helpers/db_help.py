@@ -4,10 +4,8 @@ from configs.bot_settings import db_name, method_save
 from sqlite3 import connect as db_connect
 from configs.customs import bot_settings_config
 
-# The dwsongs cache has a single implementation in utils.db: stdlib-only, so
-# the bot image and the tests reach the same code. The two names above are the
-# same values utils.db mirrors, and the four functions re-exported here keep
-# the import surface every caller already uses.
+# The dwsongs cache lives in utils.db (stdlib-only, so the bot and the tests
+# share one implementation); these re-exports keep the caller surface stable.
 from utils.db import (
 	initialize_db, write_dwsongs,
 	delete_dwsongs, select_dwsongs

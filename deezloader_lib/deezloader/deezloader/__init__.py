@@ -228,8 +228,8 @@ class DeeLogin:
 		track_json_dee = API.get_track(isrc)
 		track_link_dee = track_json_dee['link']
 
-		# The Spotify album art is already in this payload; carry it as the
-		# cover fallback instead of discarding it (zero extra API calls).
+		# The Spotify album art is already in this payload; carrying it costs no
+		# extra API call.
 		album_images = (track_json.get('album') or {}).get('images') or []
 		image_url = album_images[0].get('url') if album_images else None
 

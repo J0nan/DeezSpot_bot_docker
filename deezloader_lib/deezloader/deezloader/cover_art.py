@@ -1,36 +1,8 @@
 #!/usr/bin/python3
 
-"""Resilient cover-art pipeline for the download paths.
-
-Deezer's CDN (cdn-images.dzcdn.net) intermittently answers 403 with an empty
-body -- request-rate/content protection, not a dead host. The legacy
-choose_img fired up to ten bare requests per track (no header, no timeout, no
-backoff) and accepted any body that was not 13 bytes long, so refusals
-silently became coverless files. This module owns fetching and validation for
-every cover consumer:
-
-- Deezer size ladder (asked size -> 1000x1000 -> 500x500), deduplicated, with
-  no empty-md5 placeholder calls.
-- Optional Spotify fallback URL (i.scdn.co), captured at link conversion.
-- iTunes tertiary rung: keyless exact album lookup by the Deezer UPC
-  (lookup?upc=...&entity=album), artworkUrl100 upscaled through the
-  100x100bb -> 600x600bb URL rewrite. Lookups are paced at >= 3 s to respect
-  the documented ~20 calls/min limit; no fuzzy term matching.
-- Shared browser header, timeouts, bounded retries with exponential backoff
-  and jitter on 403/429/5xx/network errors.
-- Per-host minimum request interval and a per-key negative cache so a refused
-  album is not re-hammered once per track.
-- `fetch_thumb` small variants for Telegram cards and audio/document
-  thumbnails: one Deezer size (no ladder), the Spotify URL rewritten to its
-  300 px token, and the iTunes px variant, all through the same throttle and a
-  `thumb:` negative-cache key space.
-- Magic-byte + minimum-size validation: HTML/JSON error bodies are never
-  embedded as artwork.
-- Reason-code logging on the `deezloader.cover_art` logger: INFO
-  `fallback_used` when a fallback rung saves a track, WARNING
-  `all_sources_failed` plus the last source detail when nothing answers. The
-  bot registers the `deezloader` parent logger into logs/downloads.log
-  (configs/bot_settings.py).
+"""Cover-art fetching for every download path: a Deezer size ladder, an
+optional Spotify URL, then an iTunes UPC lookup, all through one throttle,
+retry loop and magic-byte validation. Reason codes go to the logger below.
 """
 
 import logging
@@ -67,9 +39,8 @@ logger = logging.getLogger("deezloader.cover_art")
 _now = time.time
 _sleep = time.sleep
 
-# Spotify serves every album image from one 640 px original; the last segment
-# is a fixed hash token. Swapping it for the 300 px token yields the small
-# variant without an image-resizing API call.
+# Spotify serves every album image from one 640 px original; swapping the fixed
+# hash token segment for the 300 px one yields the small variant with no API call.
 SPOTIFY_ART_LARGE = "ab67616d0000b273"
 SPOTIFY_ART_SMALL = "ab67616d00001e02"
 
@@ -207,10 +178,8 @@ def _fallback_result(key, data, source):
 	return result
 
 def _run_chain(key, deezer_urls, fallback_url, upc, art_size):
-	"""Walk Deezer -> Spotify -> iTunes in order; cache the total failure.
-
-	The negative cache is keyed by `key` and only records the total-failure
-	state, so a rung that answered is never poisoned for the next caller.
+	"""Walk Deezer -> Spotify -> iTunes, caching only a total failure so a
+	rung that answered is never poisoned for the next caller.
 	"""
 
 	detail = ""
@@ -259,6 +228,7 @@ def fetch_cover(
 	if cached and cached[0] > _now():
 		return CoverResult(reason = cached[1])
 
+	# an empty md5 would address the placeholder art: no Deezer URL is built
 	deezer_urls = _deezer_urls(md5_image, size) if md5_image else []
 
 	return _run_chain(key, deezer_urls, fallback_url, upc, ITUNES_ART_LARGE)
@@ -272,14 +242,9 @@ def _spotify_thumb_url(url):
 def fetch_thumb(
 	md5_image = "", fallback_url = None, upc = None, size = "90x90"
 ):
-	"""Fetch a small cover variant for Telegram cards and thumbs.
-
-	Same source chain and validation as fetch_cover, but the Deezer rung asks
-	for the single requested size (thumbnails are tiny; a size ladder would
-	triple the request count on every card) and the iTunes rung asks for the
-	matching px variant (e.g. 90x90bb / 320x320bb). The negative cache uses a
-	`thumb:` key so a failed thumbnail never suppresses the embedded artwork
-	of the same track, and vice versa.
+	"""Fetch a small cover variant for Telegram cards and thumbs: same chain and
+	validation as fetch_cover, one Deezer size, and a `thumb:` negative-cache key
+	so a failed thumbnail never suppresses the track artwork.
 	"""
 
 	if not md5_image and not fallback_url and not upc:
