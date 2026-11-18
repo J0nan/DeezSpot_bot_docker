@@ -117,13 +117,21 @@ root (gitignored) or from the host environment. Create `.env` with the template
 below and fill in your own values — never commit real credentials.
 
 ```dotenv
-# Required for startup
+# Required for startup — the bot crashes at import if any of these is missing.
 BOT_TOKEN=
 API_ID=
 API_HASH=
 ARL_TOKEN=
+# Chat ids (send a message to @JsonDumpBot to get them; channels are usually
+# negative). USER_ERRORS: where user errors go. BUNKER_CHANNEL: upload archive.
+# OWL_CHANNEL: announcements. ROOT_ID: your admin user id.
+USER_ERRORS=
+BUNKER_CHANNEL=
+OWL_CHANNEL=
+ROOT_ID=
 
-# Spotify metadata (search, conversion, cover fallback)
+# Spotify metadata (search, conversion, cover fallback).
+# Empty keeps the public deezloader defaults baked into the code.
 SPOTIFY_CLIENT_ID=
 SPOTIFY_CLIENT_SECRET=
 
@@ -136,12 +144,15 @@ ACRCLOUD_KEY=
 ACRCLOUD_SECRET=
 ACRCLOUD_HOST=
 
-# Optional: behavior tuning (empty keeps the built-in defaults)
+# Optional: behavior tuning — empty or absent keeps the documented defaults
+# (compose applies them). MODE_BOT 2, WARNING_BANNING 6, FLOOD_WINDOW_SECONDS 4,
+# FLOOD_MESSAGE_LIMIT 12, METHOD_SAVE 3, DOWNLOAD_DIR_MAX_SIZE 6,
+# PROGRESS_STATUS_RATE 150, TIME_SLEEP 8, SECONDS_LIMITS_ALBUM 30000,
+# SECONDS_LIMITS_TRACK 7200, UPLOAD_MAX_SIZE_USER 2, MAX_SONGS_PER_PLAYLIST 200,
+# MAX_DOWNLOAD_USER 3, BOT_NAME @, FORUM @.
 WARNING_BANNING=
 FLOOD_WINDOW_SECONDS=
 FLOOD_MESSAGE_LIMIT=
-BUNKER_CHANNEL=
-ROOT_ID=
 METHOD_SAVE=
 DOWNLOAD_DIR_MAX_SIZE=
 PROGRESS_STATUS_RATE=
@@ -153,6 +164,7 @@ MAX_SONGS_PER_PLAYLIST=
 MAX_DOWNLOAD_USER=
 BOT_NAME=
 FORUM=
+MODE_BOT=
 
 # Not needed for covers or the converted download path (native Spotify only):
 # EMAIL_SPO=
