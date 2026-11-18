@@ -187,6 +187,7 @@ class EASY_DW:
 				self.__c_track.success = False
 
 		self.__c_track.md5_image = pic
+		self.__c_track.cover_fallback_url = self.__cover_fallback_url
 
 		return self.__c_track
 
@@ -371,6 +372,7 @@ class DW_ALBUM:
 		album.nb_tracks = self.__song_metadata['nb_tracks']
 		album.album_name = self.__song_metadata['album']
 		album.upc = self.__song_metadata['upc']
+		album.cover_fallback_url = self.__preferences.cover_fallback_url
 		tracks = album.tracks
 		album.tags = self.__song_metadata
 

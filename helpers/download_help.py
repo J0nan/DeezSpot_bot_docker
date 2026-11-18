@@ -11,7 +11,7 @@ from configs.set_configs import SetConfigs
 from deezloader.exceptions import TrackNotFound
 from deezloader.libutils.utils import request, what_kind
 from inlines.inline_keyboards import create_keyboard_artist
-from deezloader.deezloader.dee_api import API as deezer_API
+from deezloader.deezloader.cover_art import fetch_thumb
 
 from .db_help import (
 	write_dwsongs, select_dwsongs, delete_dwsongs
@@ -32,7 +32,7 @@ from utils.thumb_utils import make_thumb_io
 from configs.customs import (
 	send_image_track_query, send_image_artist_query,
 	send_image_playlist_query, send_image_album_query,
-	album_too_long, track_too_long, empty_image_url
+	album_too_long, track_too_long
 )
 
 from utils.utils_data import (
@@ -51,7 +51,6 @@ from configs.bot_settings import (
 	progress_status_rate, is_thread
 )
 
-deezer_api = deezer_API()
 bot = SetConfigs.tg_bot_api.bot
 l_telegram, l_uploads, l_downloads, l_links = logging_bot()
 
@@ -149,7 +148,11 @@ class DW:
 		md5_image = track.md5_image
 
 		if self.__source == 1:
-			image_bytes1 = deezer_api.choose_img(md5_image, "90x90")
+			image_bytes1 = fetch_thumb(
+				md5_image,
+				fallback_url = getattr(track, "cover_fallback_url", None),
+				upc = track.tags.get("upc", "")
+			).data
 		elif self.__source == 2:
 			image_bytes1 = request(track.tags['image3']).content
 
@@ -302,7 +305,12 @@ class DW:
 		md5_image = album.md5_image
 
 		if self.__source == 1:
-			image_bytes2 = deezer_api.choose_img(md5_image, "320x320")
+			image_bytes2 = fetch_thumb(
+				md5_image,
+				fallback_url = getattr(album, "cover_fallback_url", None),
+				upc = album.upc or "",
+				size = "320x320"
+			).data
 		elif self.__source == 2:
 			image_bytes2 = request(album.tags['image2']).content
 
@@ -473,7 +481,11 @@ class DW:
 		nb_tracks = album.nb_tracks
 
 		if self.__source == 1:
-			image_bytes1 = deezer_api.choose_img(md5_image, "90x90")
+			image_bytes1 = fetch_thumb(
+				md5_image,
+				fallback_url = getattr(album, "cover_fallback_url", None),
+				upc = album.upc or ""
+			).data
 		elif self.__source == 2:
 			image_bytes1 = request(album.tags['image3']).content
 
@@ -597,22 +609,23 @@ class DW:
 		image_url, caption,
 		reply_markup = None
 	):
+		# image_url may be None or dead (playlist cards without a cover, a
+		# refused CDN URL): Telegram answers BadRequest, and a malformed value
+		# raises ValueError. Fall back to a plain text card -- a Message, so the
+		# caller's .message_id keeps working.
 		try:
-			data = bot.send_photo(
+			return bot.send_photo(
 				chat_id = chat_id,
 				photo = image_url,
 				caption = caption,
 				reply_markup = reply_markup
 			)
-		except BadRequest:
-			data = bot.send_photo(
+		except (BadRequest, ValueError):
+			return bot.send_message(
 				chat_id = chat_id,
-				photo = empty_image_url,
-				caption = caption,
+				text = caption,
 				reply_markup = reply_markup
 			)
-
-		return data
 
 	def download(self, link):
 		try:
@@ -635,6 +648,10 @@ class DW:
 						)
 
 						return
+
+					# The Spotify carrier is a live CDN URL; the search card's
+					# image URL is a dead-host template for the same album.
+					image_url = cover_fallback_url or image_url
 
 				elif "deezer.com" in link:
 					image_url, name,\
@@ -699,6 +716,9 @@ class DW:
 						nb_tracks, tracks,\
 						duration, link_dee,\
 							cover_fallback_url = album_spo_data(link, self.__conv)
+
+					# Same as the track card: prefer the live Spotify CDN URL.
+					image_url = cover_fallback_url or image_url
 
 				elif "deezer.com" in link:
 					image_url, album,\

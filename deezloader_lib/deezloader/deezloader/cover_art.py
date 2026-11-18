@@ -20,6 +20,10 @@ every cover consumer:
   and jitter on 403/429/5xx/network errors.
 - Per-host minimum request interval and a per-key negative cache so a refused
   album is not re-hammered once per track.
+- `fetch_thumb` small variants for Telegram cards and audio/document
+  thumbnails: one Deezer size (no ladder), the Spotify URL rewritten to its
+  300 px token, and the iTunes px variant, all through the same throttle and a
+  `thumb:` negative-cache key space.
 - Magic-byte + minimum-size validation: HTML/JSON error bodies are never
   embedded as artwork.
 """
@@ -52,6 +56,12 @@ ITUNES_ART_LARGE = "600x600bb"
 # Clock seams so tests can drive time without waiting.
 _now = time.time
 _sleep = time.sleep
+
+# Spotify serves every album image from one 640 px original; the last segment
+# is a fixed hash token. Swapping it for the 300 px token yields the small
+# variant without an image-resizing API call.
+SPOTIFY_ART_LARGE = "ab67616d0000b273"
+SPOTIFY_ART_SMALL = "ab67616d00001e02"
 
 _negative_cache = {}
 _last_request = {}
@@ -146,7 +156,7 @@ def _deezer_urls(md5_image, size):
 
 	return [COVER_URL % (md5_image, c_size) for c_size in sizes]
 
-def _itunes_cover(upc):
+def _itunes_cover(upc, art_size = ITUNES_ART_LARGE):
 	lookup_url = ITUNES_LOOKUP % upc
 	_throttle(lookup_url)
 
@@ -173,7 +183,44 @@ def _itunes_cover(upc):
 	if not artwork:
 		return b"", "no_match"
 
-	return _get_image(artwork.replace(ITUNES_ART_SMALL, ITUNES_ART_LARGE))
+	return _get_image(artwork.replace(ITUNES_ART_SMALL, art_size))
+
+def _run_chain(key, deezer_urls, fallback_url, upc, art_size):
+	"""Walk Deezer -> Spotify -> iTunes in order; cache the total failure.
+
+	The negative cache is keyed by `key` and only records the total-failure
+	state, so a rung that answered is never poisoned for the next caller.
+	"""
+
+	detail = ""
+
+	for url in deezer_urls:
+		data, fail = _get_image(url)
+
+		if data:
+			return CoverResult(data, DEEZER)
+
+		detail = fail or detail
+
+	if fallback_url:
+		data, fail = _get_image(fallback_url)
+
+		if data:
+			return CoverResult(data, SPOTIFY, "fallback_used")
+
+		detail = fail or detail
+
+	if upc:
+		data, fail = _itunes_cover(upc, art_size)
+
+		if data:
+			return CoverResult(data, ITUNES, "fallback_used")
+
+		detail = fail or detail
+
+	_negative_cache[key] = (_now() + NEGATIVE_TTL, "all_sources_failed")
+
+	return CoverResult(reason = "all_sources_failed", detail = detail)
 
 def fetch_cover(
 	md5_image = "", fallback_url = None, upc = None, size = "1200x1200"
@@ -187,33 +234,41 @@ def fetch_cover(
 	if cached and cached[0] > _now():
 		return CoverResult(reason = cached[1])
 
-	detail = ""
+	deezer_urls = _deezer_urls(md5_image, size) if md5_image else []
 
-	if md5_image:
-		for url in _deezer_urls(md5_image, size):
-			data, fail = _get_image(url)
+	return _run_chain(key, deezer_urls, fallback_url, upc, ITUNES_ART_LARGE)
 
-			if data:
-				return CoverResult(data, DEEZER)
+def _spotify_thumb_url(url):
+	if SPOTIFY_ART_LARGE in url:
+		return url.replace(SPOTIFY_ART_LARGE, SPOTIFY_ART_SMALL)
 
-			detail = fail or detail
+	return url
 
-	if fallback_url:
-		data, fail = _get_image(fallback_url)
+def fetch_thumb(
+	md5_image = "", fallback_url = None, upc = None, size = "90x90"
+):
+	"""Fetch a small cover variant for Telegram cards and thumbs.
 
-		if data:
-			return CoverResult(data, SPOTIFY, "fallback_used")
+	Same source chain and validation as fetch_cover, but the Deezer rung asks
+	for the single requested size (thumbnails are tiny; a size ladder would
+	triple the request count on every card) and the iTunes rung asks for the
+	matching px variant (e.g. 90x90bb / 320x320bb). The negative cache uses a
+	`thumb:` key so a failed thumbnail never suppresses the embedded artwork
+	of the same track, and vice versa.
+	"""
 
-		detail = fail or detail
+	if not md5_image and not fallback_url and not upc:
+		return CoverResult(reason = "no_md5")
 
-	if upc:
-		data, fail = _itunes_cover(upc)
+	key = f"thumb:{size}:{md5_image or fallback_url or upc}"
+	cached = _negative_cache.get(key)
 
-		if data:
-			return CoverResult(data, ITUNES, "fallback_used")
+	if cached and cached[0] > _now():
+		return CoverResult(reason = cached[1])
 
-		detail = fail or detail
+	deezer_urls = [COVER_URL % (md5_image, size)] if md5_image else []
+	thumb_fallback = _spotify_thumb_url(fallback_url) if fallback_url else None
 
-	_negative_cache[key] = (_now() + NEGATIVE_TTL, "all_sources_failed")
-
-	return CoverResult(reason = "all_sources_failed", detail = detail)
+	return _run_chain(
+		key, deezer_urls, thumb_fallback, upc, f"{size}bb"
+	)
