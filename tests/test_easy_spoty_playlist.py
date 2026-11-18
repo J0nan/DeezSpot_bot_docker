@@ -171,7 +171,11 @@ def make_details(
 
 	return details
 
-def make_track_entry(name, track_id, artist_names, added_at = "2024-01-01T00:00:00Z"):
+def make_track_entry(
+	name, track_id, artist_names,
+	added_at = "2024-01-01T00:00:00Z",
+	album_sources = None
+):
 	item = PlaylistTrack(name = name, uri = f"spotify:track:{track_id}")
 	item.artists = SimpleNamespace(
 		items = [
@@ -179,6 +183,20 @@ def make_track_entry(name, track_id, artist_names, added_at = "2024-01-01T00:00:
 			for artist_name in artist_names
 		]
 	)
+
+	if album_sources is not None:
+		# SpotAPI 2 carries the occurrence's album artwork on the track
+		# itself: album_of_track.cover_art.sources holds one entry per size.
+		item.album_of_track = SimpleNamespace(
+			name = f"{name} album",
+			uri = f"spotify:album:{track_id}",
+			cover_art = SimpleNamespace(
+				sources = [
+					SimpleNamespace(url = url, width = width, height = width)
+					for url, width in album_sources
+				]
+			)
+		)
 
 	return PlaylistEntry(item = item, uid = f"uid-{track_id}", added_at = added_at)
 
@@ -272,6 +290,41 @@ def test_track_without_artists_gets_unknown_artist():
 		result = easy_spoty.Spo.get_playlist(PLAYLIST_ID)
 
 	assert result["tracks"]["items"][0]["track"]["artists"] == [{"name": "Unknown"}]
+
+def test_track_album_art_is_mapped_in_spotipy_shape():
+	details = make_details(total_count = 1)
+	sources = [
+		("https://i.scdn.co/image/small.jpg", 64),
+		("https://i.scdn.co/image/album.jpg", 640),
+		("https://i.scdn.co/image/mid.jpg", 300)
+	]
+	catalogue = ScriptedCatalogue([(details, [[make_track_entry("Song", "111", ["Artist"], album_sources = sources)]])])
+
+	with Patched(SyncCatalogue = catalogue):
+		result = easy_spoty.Spo.get_playlist(PLAYLIST_ID)
+
+	track = result["tracks"]["items"][0]["track"]
+	# the largest source wins, like the playlist-level image mapping
+	assert track["album"] == {"images": [{"url": "https://i.scdn.co/image/album.jpg"}]}
+	# the rest of the track shape is untouched by the addition
+	assert track["name"] == "Song"
+	assert track["artists"] == [{"name": "Artist"}]
+	assert track["external_urls"] == {"spotify": "https://open.spotify.com/track/111"}
+
+def test_track_without_album_art_keeps_the_spotipy_shape():
+	details = make_details(total_count = 1)
+	catalogue = ScriptedCatalogue([(details, [[make_track_entry("Song", "111", ["Artist"], album_sources = [])]])])
+
+	with Patched(SyncCatalogue = catalogue):
+		result = easy_spoty.Spo.get_playlist(PLAYLIST_ID)
+
+	track = result["tracks"]["items"][0]["track"]
+	assert "album" not in track
+	assert track == {
+		"name": "Song",
+		"artists": [{"name": "Artist"}],
+		"external_urls": {"spotify": "https://open.spotify.com/track/111"}
+	}
 
 def test_image_without_sources_is_skipped():
 	details = make_details(total_count = 1)

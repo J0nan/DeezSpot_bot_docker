@@ -59,6 +59,36 @@ class Spo:
 		return results
 
 	@staticmethod
+	def __largest_source_url(sources):
+		# Port of the playlist-level rule: one artwork group can offer
+		# several sizes, and the largest one is the url worth handing on.
+		# No sources, or a largest source without a url, means "no image".
+		sources = sources or []
+
+		if not sources:
+			return None
+
+		big = max(
+			sources,
+			key = lambda source: getattr(source, 'width', 0) or 0
+		)
+
+		return getattr(big, 'url', None)
+
+	@staticmethod
+	def __map_track_album(item):
+		# SpotAPI 2 carries the occurrence's album artwork on the track
+		# itself (album_of_track.cover_art.sources); spotipy exposes it as
+		# track['album']['images'], so map it there when the payload has
+		# it. Empty artwork maps to nothing at all, keeping the returned
+		# track byte-identical to the shape the downloaders consume today.
+		album = getattr(item, 'album_of_track', None)
+		cover_art = getattr(album, 'cover_art', None)
+		url = Spo.__largest_source_url(getattr(cover_art, 'sources', None))
+
+		return [{'url': url}] if url else []
+
+	@staticmethod
 	def __map_playlist_track(entry):
 		item = getattr(entry, 'item', None)
 		uri = getattr(item, 'uri', None) or ''
@@ -78,16 +108,21 @@ class Spo:
 			if getattr(getattr(artist, 'profile', None), 'name', None)
 		]
 		name = getattr(item, 'name', None) or 'Unknown'
+		track = {
+			'name': name,
+			'artists': artists or [{'name': 'Unknown'}],
+			'external_urls': {
+				'spotify': f"https://open.spotify.com/track/{ids}"
+			}
+		}
+		album_images = Spo.__map_track_album(item)
+
+		if album_images:
+			track['album'] = {'images': album_images}
 
 		return {
 			'added_at': getattr(entry, 'added_at', None),
-			'track': {
-				'name': name,
-				'artists': artists or [{'name': 'Unknown'}],
-				'external_urls': {
-					'spotify': f"https://open.spotify.com/track/{ids}"
-				}
-			}
+			'track': track
 		}
 
 	@staticmethod
@@ -95,17 +130,10 @@ class Spo:
 		sources = []
 
 		for image in (getattr(getattr(details, 'images', None), 'items', None) or []):
-			c_sources = getattr(image, 'sources', None) or []
+			url = Spo.__largest_source_url(getattr(image, 'sources', None))
 
-			if c_sources:
-				big = max(
-					c_sources,
-					key = lambda source: getattr(source, 'width', 0) or 0
-				)
-				url = getattr(big, 'url', None)
-
-				if url:
-					sources.append({'url': url})
+			if url:
+				sources.append({'url': url})
 
 		return sources
 

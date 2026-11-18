@@ -143,10 +143,16 @@ def playlist_spo_data(link):
 	ids = get_ids(link)
 	data = Spo.get_playlist(ids)
 	n_fans = data['followers']['total']
-	image_url = data['images'][0]['url']
-	creation_date = data['tracks']['items'][0]['added_at']
-	creator = data['owner']['display_name']
+	# SpotAPI 2 can return a playlist with no artwork or with no item at all
+	# (a brand-new or fully emptied playlist). Indexing either blindly raised
+	# IndexError and the card answered "This playlist is unreadable :(", so a
+	# missing value degrades to None instead: the card still renders, and the
+	# photo helper falls back to text when there is no image to send.
+	images = data.get('images') or []
+	image_url = images[0].get('url') if images else None
 	tracks = data['tracks']['items']
+	creation_date = tracks[0].get('added_at') if tracks else None
+	creator = data['owner']['display_name']
 	nb_tracks = data['tracks']['total']
 
 	return (
