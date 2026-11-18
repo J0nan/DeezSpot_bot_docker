@@ -12,15 +12,16 @@ every cover consumer:
 - Deezer size ladder (asked size -> 1000x1000 -> 500x500), deduplicated, with
   no empty-md5 placeholder calls.
 - Optional Spotify fallback URL (i.scdn.co), captured at link conversion.
+- iTunes tertiary rung: keyless exact album lookup by the Deezer UPC
+  (lookup?upc=...&entity=album), artworkUrl100 upscaled through the
+  100x100bb -> 600x600bb URL rewrite. Lookups are paced at >= 3 s to respect
+  the documented ~20 calls/min limit; no fuzzy term matching.
 - Shared browser header, timeouts, bounded retries with exponential backoff
   and jitter on 403/429/5xx/network errors.
 - Per-host minimum request interval and a per-key negative cache so a refused
   album is not re-hammered once per track.
 - Magic-byte + minimum-size validation: HTML/JSON error bodies are never
   embedded as artwork.
-
-The iTunes rung (exact UPC lookup) joins fetch_cover additively in a later
-work unit.
 """
 
 import random
@@ -33,15 +34,20 @@ from ..libutils.others_settings import header
 
 DEEZER = "deezer"
 SPOTIFY = "spotify"
+ITUNES = "itunes"
 
 MIN_IMAGE_BYTES = 1024
 NEGATIVE_TTL = 600.0
 MIN_REQUEST_INTERVAL = 0.25
+ITUNES_MIN_INTERVAL = 3.0
 REQUEST_TIMEOUT = (5, 15)
 MAX_RETRIES = 2
 BACKOFF_BASE = 0.5
 FALLBACK_SIZES = ("1000x1000", "500x500")
 COVER_URL = "https://cdn-images.dzcdn.net/images/cover/%s/%s-000000-80-0-0.jpg"
+ITUNES_LOOKUP = "https://itunes.apple.com/lookup?upc=%s&entity=album"
+ITUNES_ART_SMALL = "100x100bb"
+ITUNES_ART_LARGE = "600x600bb"
 
 # Clock seams so tests can drive time without waiting.
 _now = time.time
@@ -80,10 +86,14 @@ def is_valid_image(data):
 
 def _throttle(url):
 	host = urlsplit(url).netloc
+	interval = (
+		ITUNES_MIN_INTERVAL if host == "itunes.apple.com"
+		else MIN_REQUEST_INTERVAL
+	)
 	last = _last_request.get(host)
 
 	if last is not None:
-		wait = MIN_REQUEST_INTERVAL - (_now() - last)
+		wait = interval - (_now() - last)
 
 		if wait > 0:
 			_sleep(wait)
@@ -136,11 +146,42 @@ def _deezer_urls(md5_image, size):
 
 	return [COVER_URL % (md5_image, c_size) for c_size in sizes]
 
-def fetch_cover(md5_image = "", fallback_url = None, size = "1200x1200"):
-	if not md5_image and not fallback_url:
+def _itunes_cover(upc):
+	lookup_url = ITUNES_LOOKUP % upc
+	_throttle(lookup_url)
+
+	try:
+		response = requests.get(
+			lookup_url, headers = header, timeout = REQUEST_TIMEOUT
+		)
+	except requests.RequestException:
+		return b"", "cdn_empty"
+
+	if response.status_code != 200:
+		return b"", _reason_for(response.status_code, b"")
+
+	try:
+		results = response.json().get("results") or []
+	except ValueError:
+		return b"", "invalid_body"
+
+	if not results:
+		return b"", "no_match"
+
+	artwork = results[0].get("artworkUrl100") or ""
+
+	if not artwork:
+		return b"", "no_match"
+
+	return _get_image(artwork.replace(ITUNES_ART_SMALL, ITUNES_ART_LARGE))
+
+def fetch_cover(
+	md5_image = "", fallback_url = None, upc = None, size = "1200x1200"
+):
+	if not md5_image and not fallback_url and not upc:
 		return CoverResult(reason = "no_md5")
 
-	key = md5_image or fallback_url
+	key = md5_image or fallback_url or upc
 	cached = _negative_cache.get(key)
 
 	if cached and cached[0] > _now():
@@ -162,6 +203,14 @@ def fetch_cover(md5_image = "", fallback_url = None, size = "1200x1200"):
 
 		if data:
 			return CoverResult(data, SPOTIFY, "fallback_used")
+
+		detail = fail or detail
+
+	if upc:
+		data, fail = _itunes_cover(upc)
+
+		if data:
+			return CoverResult(data, ITUNES, "fallback_used")
 
 		detail = fail or detail
 

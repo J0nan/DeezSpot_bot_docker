@@ -65,14 +65,16 @@ def shazam_song(song):
 
 #OLD SPOTIFY DOWNLOAD
 def track_spo_to_dee_data(link):
-	link_dee = SetConfigs.deez_api.convert_spoty_to_dee_link_track(link)
+	link_dee, spo_image = SetConfigs.deez_api.convert_spoty_to_dee_track(link)
 	dee_data = track_dee_data(link_dee)
 
-	return dee_data
+	return dee_data, spo_image
 
 def track_spo_data(link, conv: bool):
 	if conv:
-		return track_spo_to_dee_data(link)
+		dee_data, spo_image = track_spo_to_dee_data(link)
+
+		return (*dee_data, spo_image)
 
 	ids = get_ids(link)
 	data = Spo.get_track(ids)
@@ -86,7 +88,8 @@ def track_spo_data(link, conv: bool):
 	return (
 		image_url, name,
 		artist, album,
-		date, link, duration
+		date, link, duration,
+		image_url
 	)
 
 def track_dee_data(link):
@@ -172,20 +175,23 @@ def album_dee_data(link):
 		duration, link_dee
 	)
 
-def convert_spoty_to_dee_link_track(link):
-	link_dee = SetConfigs.deez_api.convert_spoty_to_dee_link_track(link)
+def convert_spoty_to_dee_track(link):
+	return SetConfigs.deez_api.convert_spoty_to_dee_track(link)
 
-	return link_dee
+def convert_spoty_to_dee_link_track(link):
+	return convert_spoty_to_dee_track(link)[0]
 
 def album_spo_data_to_dee(link):
-	link_dee = SetConfigs.deez_api.convert_spoty_to_dee_link_album(link)
+	link_dee, spo_image = SetConfigs.deez_api.convert_spoty_to_dee_album(link)
 	dee_data = album_dee_data(link_dee)
 
-	return dee_data
+	return dee_data, spo_image
 
 def album_spo_data(link, conv: bool):
 	if conv:
-		return album_spo_data_to_dee(link)
+		dee_data, spo_image = album_spo_data_to_dee(link)
+
+		return (*dee_data, spo_image)
 
 	ids = get_ids(link)
 	data = Spo.get_album(ids)
@@ -206,7 +212,8 @@ def album_spo_data(link, conv: bool):
 		image_url, album,
 		artist, date,
 		nb_tracks, tracks,
-		duration, link
+		duration, link,
+		image_url
 	)
 
 def __artist_credits(data):

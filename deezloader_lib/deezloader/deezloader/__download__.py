@@ -2,6 +2,7 @@
 
 from tqdm import tqdm
 from .dee_api import API
+from .cover_art import fetch_cover
 from copy import deepcopy
 from os.path import isfile
 from .deegw_api import API_GW
@@ -117,6 +118,7 @@ class EASY_DW:
 		self.__quality_download = preferences.quality_download
 		self.__recursive_quality = preferences.recursive_quality
 		self.__recursive_download = preferences.recursive_download
+		self.__cover_fallback_url = preferences.cover_fallback_url
 
 		self.__c_quality = qualities[self.__quality_download]
 		self.__fallback_ids = self.__ids
@@ -150,7 +152,12 @@ class EASY_DW:
 
 	def easy_dw(self) -> Track:
 		pic = self.__infos_dw['ALB_PICTURE']
-		image = API.choose_img(pic)
+		cover = fetch_cover(
+			pic,
+			fallback_url = self.__cover_fallback_url,
+			upc = self.__song_metadata.get('upc', "")
+		)
+		image = cover.data
 		self.__song_metadata['image'] = image
 		song = f"{self.__song_metadata['music']} - {self.__song_metadata['artist']}"
 
@@ -350,7 +357,12 @@ class DW_ALBUM:
 	def dw(self) -> Album:
 		infos_dw = API_GW.get_album_data(self.__ids)['data']
 		md5_image = infos_dw[0]['ALB_PICTURE']
-		image = API.choose_img(md5_image)
+		cover = fetch_cover(
+			md5_image,
+			fallback_url = self.__preferences.cover_fallback_url,
+			upc = self.__song_metadata.get('upc', "")
+		)
+		image = cover.data
 		self.__song_metadata['image'] = image
 
 		album = Album(self.__ids)

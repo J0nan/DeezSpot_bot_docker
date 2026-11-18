@@ -39,7 +39,7 @@ from utils.utils_data import (
 	track_spo_data, track_dee_data,
 	artist_dee_data, playlist_dee_data,
 	playlist_spo_data, album_dee_data,
-	album_spo_data, convert_spoty_to_dee_link_track
+	album_spo_data, convert_spoty_to_dee_track
 )
 
 from configs.bot_settings import (
@@ -214,7 +214,7 @@ class DW:
 
 		self.__upload_audio(file_id)
 
-	def __download_track(self, url):
+	def __download_track(self, url, cover_fallback_url = None):
 		try:
 			if "deezer" in url:
 				track = SetConfigs.deez_api.download_trackdee(
@@ -223,7 +223,8 @@ class DW:
 					quality_download = self.__quality,
 					recursive_quality = recursive_quality,
 					recursive_download = recursive_download,
-					method_save = self.__method_save
+					method_save = self.__method_save,
+					cover_fallback_url = cover_fallback_url
 				)
 
 			elif "spotify" in url:
@@ -427,7 +428,7 @@ class DW:
 				text = f"Cannot download {track.song_name} :("
 			)
 
-	def __download_album(self, url):
+	def __download_album(self, url, cover_fallback_url = None):
 		progress_message_id = bot.send_message(
 			chat_id = self.__chat_id,
 			text = "Downloading album, this may take a while..."
@@ -442,7 +443,8 @@ class DW:
 					recursive_quality = recursive_quality,
 					recursive_download = recursive_download,
 					make_zip = SetConfigs.create_zips,
-					method_save = self.__method_save
+					method_save = self.__method_save,
+					cover_fallback_url = cover_fallback_url
 				)
 
 			elif "spotify" in url:
@@ -525,7 +527,7 @@ class DW:
 		log_error(error, exc_info = True)
 		log_error(err_str)
 
-	def __check_track(self, link):
+	def __check_track(self, link, cover_fallback_url = None):
 		self.__set_quality(link)
 		link_path = get_url_path(link)
 		match = select_dwsongs(link_path, self.__n_quality, self.__method_save)
@@ -537,14 +539,14 @@ class DW:
 				self.__upload_audio(file_id)
 			except BadRequest:
 				delete_dwsongs(file_id)
-				self.__check_track(link)
+				self.__check_track(link, cover_fallback_url = cover_fallback_url)
 		else:
 			try:
-				self.__download_track(link)
+				self.__download_track(link, cover_fallback_url = cover_fallback_url)
 			except Exception as error:
 				self.__send_for_debug(link, error)
 
-	def __check_album(self, link, tracks):
+	def __check_album(self, link, tracks, cover_fallback_url = None):
 		self.__set_quality(link)
 		link_path = get_url_path(link)
 		match = select_dwsongs(link_path, self.__n_quality, self.__method_save)
@@ -557,7 +559,7 @@ class DW:
 					self.__upload_zip(file_id)
 				except BadRequest:
 					delete_dwsongs(file_id)
-					self.__check_album(link, tracks)
+					self.__check_album(link, tracks, cover_fallback_url = cover_fallback_url)
 
 			if self.__send_to_user_tracks:
 				for track in tracks:
@@ -583,10 +585,10 @@ class DW:
 						self.__upload_audio(c_file_id)
 					except BadRequest:
 						delete_dwsongs(c_file_id)
-						self.__check_track(c_link)
+						self.__check_track(c_link, cover_fallback_url = cover_fallback_url)
 		else:
 			try:
-				self.__download_album(link)
+				self.__download_album(link, cover_fallback_url = cover_fallback_url)
 			except Exception as error:
 				self.__send_for_debug(link, error)
 
@@ -624,7 +626,8 @@ class DW:
 					try:
 						image_url, name,\
 							artist, album,\
-								date, link_dee, duration = track_spo_data(link, self.__conv)
+								date, link_dee, duration,\
+									cover_fallback_url = track_spo_data(link, self.__conv)
 					except TrackNotFound:
 						bot.send_message(
 							chat_id = self.__chat_id,
@@ -637,6 +640,8 @@ class DW:
 					image_url, name,\
 						artist, album,\
 							date, link_dee, duration = track_dee_data(link)
+
+					cover_fallback_url = None
 
 				if duration > seconds_limits_track:
 					bot.send_message(
@@ -660,7 +665,7 @@ class DW:
 					self.__chat_id, image_url, caption
 				).message_id
 
-				self.__check_track(link_dee)
+				self.__check_track(link_dee, cover_fallback_url = cover_fallback_url)
 
 			elif "artist/" in link:
 				stat = 0
@@ -692,13 +697,16 @@ class DW:
 					image_url, album,\
 						artist, date,\
 						nb_tracks, tracks,\
-						duration, link_dee = album_spo_data(link, self.__conv)
+						duration, link_dee,\
+							cover_fallback_url = album_spo_data(link, self.__conv)
 
 				elif "deezer.com" in link:
 					image_url, album,\
 						artist, date,\
 						nb_tracks, tracks,\
 						duration, link_dee = album_dee_data(link)
+
+					cover_fallback_url = None
 
 				if duration > seconds_limits_album:
 					bot.send_message(
@@ -722,7 +730,7 @@ class DW:
 					self.__chat_id, image_url, caption
 				).message_id
 
-				self.__check_album(link_dee, tracks)
+				self.__check_album(link_dee, tracks, cover_fallback_url = cover_fallback_url)
 
 			elif "playlist/" in link:
 				if "spotify.com" in link:
@@ -770,6 +778,8 @@ class DW:
 				for track, index in zip(
 					tracks, range(max_song_per_playlist)
 				):
+					c_cover = None
+
 					if mode == "deezer":
 						c_link = track['link']
 
@@ -793,7 +803,7 @@ class DW:
 
 						if self.__conv:
 							try:
-								c_link = convert_spoty_to_dee_link_track(c_link)
+								c_link, c_cover = convert_spoty_to_dee_track(c_link)
 							except (NoDataApi, TrackNotFound):
 								bot.send_message(
 									chat_id = self.__chat_id,
@@ -802,7 +812,7 @@ class DW:
 
 								continue
 
-					self.__check_track(c_link)
+					self.__check_track(c_link, cover_fallback_url = c_cover)
 
 			else:
 				bot.send_message(

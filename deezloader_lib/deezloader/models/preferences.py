@@ -13,3 +13,4 @@ class Preferences:
 		self.not_interface = None
 		self.method_save = None
 		self.make_zip = None
+		self.cover_fallback_url = None

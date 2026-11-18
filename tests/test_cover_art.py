@@ -66,6 +66,10 @@ class FakeResponse:
 		self.status_code = status_code
 		self.content = content
 
+	def json(self):
+		import json
+		return json.loads(self.content)
+
 class HttpRecorder:
 	"""Scripted requests.get replacement; records url + kwargs per call."""
 
