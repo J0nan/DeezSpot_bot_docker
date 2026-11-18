@@ -110,6 +110,58 @@ Docker Variables:
 - **ACRCLOUD_SECRET**: for acrcloud secret look at [acrcloud](https://docs.acrcloud.com/tutorials/recognize-music)
 - **ACRCLOUD_HOST**: for host look at [acrcloud](https://docs.acrcloud.com/tutorials/recognize-music)
 
+# Environment file (.env)
+
+`docker-compose.yml` interpolates `${VAR}` from a `.env` file at the repository
+root (gitignored) or from the host environment. Create `.env` with the template
+below and fill in your own values — never commit real credentials.
+
+```dotenv
+# Required for startup
+BOT_TOKEN=
+API_ID=
+API_HASH=
+ARL_TOKEN=
+
+# Spotify metadata (search, conversion, cover fallback)
+SPOTIFY_CLIENT_ID=
+SPOTIFY_CLIENT_SECRET=
+
+# Optional: Deezer account login (only if the ARL expires)
+EMAIL_DEE=
+PWD_DEE=
+
+# Optional: ACRCloud song recognition
+ACRCLOUD_KEY=
+ACRCLOUD_SECRET=
+ACRCLOUD_HOST=
+
+# Optional: behavior tuning (empty keeps the built-in defaults)
+WARNING_BANNING=
+FLOOD_WINDOW_SECONDS=
+FLOOD_MESSAGE_LIMIT=
+BUNKER_CHANNEL=
+ROOT_ID=
+METHOD_SAVE=
+DOWNLOAD_DIR_MAX_SIZE=
+PROGRESS_STATUS_RATE=
+TIME_SLEEP=
+SECONDS_LIMITS_ALBUM=
+SECONDS_LIMITS_TRACK=
+UPLOAD_MAX_SIZE_USER=
+MAX_SONGS_PER_PLAYLIST=
+MAX_DOWNLOAD_USER=
+BOT_NAME=
+FORUM=
+
+# Not needed for covers or the converted download path (native Spotify only):
+# EMAIL_SPO=
+# PWD_SPO=
+```
+
+No additional API keys are required for cover art: the Deezer CDN, Spotify's
+image CDN (`i.scdn.co`) and the iTunes lookup API are all public.
+
 # How to set Spotify credentials
 
 1. Download the latest version https://github.com/dspearson/librespot-auth from the release tab
@@ -150,3 +202,41 @@ To obtain your Deezer ARL cookie, you can follow these steps:
 3. Click the lock icon in the address bar.
 4. Click Cookies.
 5. Search for the arl cookie and copy the value.
+
+# Cover art
+
+Embedded artwork and Telegram thumbnails are fetched by one resilient pipeline
+(`deezloader_lib/deezloader/deezloader/cover_art.py`) with three sources, tried
+in order:
+
+1. **Deezer CDN** — size ladder (1200 → 1000 → 500), browser headers, timeouts,
+   bounded retries with backoff on 403/5xx, per-host pacing and a per-album
+   negative cache (Deezer intermittently rate-protects the CDN with empty 403s).
+2. **Spotify image CDN** — the album image URL already fetched when a Spotify
+   link is converted to Deezer; zero extra API calls.
+3. **iTunes lookup** — keyless, exact album match by the Deezer UPC, artwork
+   upscaled to 600×600; lookups paced for the ~20 calls/min limit.
+
+Every response is validated (image magic bytes + minimum size), so HTML/JSON
+error pages are never embedded as covers. When all sources fail, the taggers
+skip the picture frame and log `no cover art available for <path>`; successful
+fallbacks and failure reason codes (`cdn_403`, `cdn_empty`, `invalid_body`,
+`no_md5`, `fallback_used`, `all_sources_failed`) are logged to `logs/downloads.log`.
+
+Files downloaded before a cover fix are re-tagged automatically (the tag check
+requires an actual picture, not just a tag count), and stored Telegram uploads
+without artwork are re-uploaded.
+
+## Verifying covers after a deploy
+
+Run these in the deployment environment (the bot's Docker host), not on a
+network that blocks `cdn-images.dzcdn.net`:
+
+1. Download a track that previously came out coverless (e.g. a Queen FLAC).
+   Expect a picture block in the file (`ffprobe` shows `attached_pic=1`) and a
+   `fallback_used` entry in `logs/downloads.log` if Deezer refused.
+2. Download a full album. Expect one cover fetch shared by all tracks.
+3. Re-download an old coverless file. Expect it re-tagged without re-downloading
+   the audio, and a stored coverless upload re-uploaded.
+4. Download a 30+ track playlist. Expect no 403 burst and no
+   `all_sources_failed` flood.
