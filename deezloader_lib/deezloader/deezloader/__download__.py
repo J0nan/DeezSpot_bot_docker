@@ -2,12 +2,13 @@
 
 from tqdm import tqdm
 from .dee_api import API
+from .cover_art import fetch_cover
 from copy import deepcopy
 from os.path import isfile
 from .deegw_api import API_GW
 from .deezer_settings import qualities
 from ..libutils.others_settings import answers
-from ..__taggers__ import write_tags, check_track
+from ..__taggers__ import write_tags, check_track, has_complete_tags
 from .__download_utils__ import decryptfile, gen_song_hash
 
 from ..exceptions import (
@@ -117,6 +118,7 @@ class EASY_DW:
 		self.__quality_download = preferences.quality_download
 		self.__recursive_quality = preferences.recursive_quality
 		self.__recursive_download = preferences.recursive_download
+		self.__cover_fallback_url = preferences.cover_fallback_url
 
 		self.__c_quality = qualities[self.__quality_download]
 		self.__fallback_ids = self.__ids
@@ -150,7 +152,12 @@ class EASY_DW:
 
 	def easy_dw(self) -> Track:
 		pic = self.__infos_dw['ALB_PICTURE']
-		image = API.choose_img(pic)
+		cover = fetch_cover(
+			pic,
+			fallback_url = self.__cover_fallback_url,
+			upc = self.__song_metadata.get('upc', "")
+		)
+		image = cover.data
 		self.__song_metadata['image'] = image
 		song = f"{self.__song_metadata['music']} - {self.__song_metadata['artist']}"
 
@@ -180,19 +187,28 @@ class EASY_DW:
 				self.__c_track.success = False
 
 		self.__c_track.md5_image = pic
+		self.__c_track.cover_fallback_url = self.__cover_fallback_url
 
 		return self.__c_track
 
 	def download_try(self) -> Track:
-		if isfile(self.__song_path) and check_track(self.__c_track):
-			if self.__recursive_download:
-				return self.__c_track
+		if isfile(self.__song_path):
+			if check_track(self.__c_track):
+				if self.__recursive_download:
+					return self.__c_track
 
-			ans = input(
-				f"Track \"{self.__song_path}\" already exists, do you want to redownload it?(y or n):"
-			)
+				ans = input(
+					f"Track \"{self.__song_path}\" already exists, do you want to redownload it?(y or n):"
+				)
 
-			if not ans in answers:
+				if not ans in answers:
+					return self.__c_track
+			elif has_complete_tags(self.__c_track):
+				# Complete tag set, missing artwork only: re-tag in place
+				# instead of pulling and decrypting the audio again.
+				self.__add_more_tags()
+				write_tags(self.__c_track)
+
 				return self.__c_track
 
 		media_list = self.__infos_dw['media_url']['media']
@@ -350,7 +366,12 @@ class DW_ALBUM:
 	def dw(self) -> Album:
 		infos_dw = API_GW.get_album_data(self.__ids)['data']
 		md5_image = infos_dw[0]['ALB_PICTURE']
-		image = API.choose_img(md5_image)
+		cover = fetch_cover(
+			md5_image,
+			fallback_url = self.__preferences.cover_fallback_url,
+			upc = self.__song_metadata.get('upc', "")
+		)
+		image = cover.data
 		self.__song_metadata['image'] = image
 
 		album = Album(self.__ids)
@@ -359,6 +380,7 @@ class DW_ALBUM:
 		album.nb_tracks = self.__song_metadata['nb_tracks']
 		album.album_name = self.__song_metadata['album']
 		album.upc = self.__song_metadata['upc']
+		album.cover_fallback_url = self.__preferences.cover_fallback_url
 		tracks = album.tracks
 		album.tags = self.__song_metadata
 

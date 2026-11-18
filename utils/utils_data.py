@@ -65,14 +65,16 @@ def shazam_song(song):
 
 #OLD SPOTIFY DOWNLOAD
 def track_spo_to_dee_data(link):
-	link_dee = SetConfigs.deez_api.convert_spoty_to_dee_link_track(link)
+	link_dee, spo_image = SetConfigs.deez_api.convert_spoty_to_dee_track(link)
 	dee_data = track_dee_data(link_dee)
 
-	return dee_data
+	return dee_data, spo_image
 
 def track_spo_data(link, conv: bool):
 	if conv:
-		return track_spo_to_dee_data(link)
+		dee_data, spo_image = track_spo_to_dee_data(link)
+
+		return (*dee_data, spo_image)
 
 	ids = get_ids(link)
 	data = Spo.get_track(ids)
@@ -86,7 +88,8 @@ def track_spo_data(link, conv: bool):
 	return (
 		image_url, name,
 		artist, album,
-		date, link, duration
+		date, link, duration,
+		image_url
 	)
 
 def track_dee_data(link):
@@ -140,10 +143,13 @@ def playlist_spo_data(link):
 	ids = get_ids(link)
 	data = Spo.get_playlist(ids)
 	n_fans = data['followers']['total']
-	image_url = data['images'][0]['url']
-	creation_date = data['tracks']['items'][0]['added_at']
-	creator = data['owner']['display_name']
+	# SpotAPI 2 can return a playlist with no artwork or no item at all; a
+	# missing value degrades to None instead of raising IndexError.
+	images = data.get('images') or []
+	image_url = images[0].get('url') if images else None
 	tracks = data['tracks']['items']
+	creation_date = tracks[0].get('added_at') if tracks else None
+	creator = data['owner']['display_name']
 	nb_tracks = data['tracks']['total']
 
 	return (
@@ -172,20 +178,23 @@ def album_dee_data(link):
 		duration, link_dee
 	)
 
-def convert_spoty_to_dee_link_track(link):
-	link_dee = SetConfigs.deez_api.convert_spoty_to_dee_link_track(link)
+def convert_spoty_to_dee_track(link):
+	return SetConfigs.deez_api.convert_spoty_to_dee_track(link)
 
-	return link_dee
+def convert_spoty_to_dee_link_track(link):
+	return convert_spoty_to_dee_track(link)[0]
 
 def album_spo_data_to_dee(link):
-	link_dee = SetConfigs.deez_api.convert_spoty_to_dee_link_album(link)
+	link_dee, spo_image = SetConfigs.deez_api.convert_spoty_to_dee_album(link)
 	dee_data = album_dee_data(link_dee)
 
-	return dee_data
+	return dee_data, spo_image
 
 def album_spo_data(link, conv: bool):
 	if conv:
-		return album_spo_data_to_dee(link)
+		dee_data, spo_image = album_spo_data_to_dee(link)
+
+		return (*dee_data, spo_image)
 
 	ids = get_ids(link)
 	data = Spo.get_album(ids)
@@ -206,7 +215,8 @@ def album_spo_data(link, conv: bool):
 		image_url, album,
 		artist, date,
 		nb_tracks, tracks,
-		duration, link
+		duration, link,
+		image_url
 	)
 
 def __artist_credits(data):

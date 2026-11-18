@@ -59,6 +59,33 @@ class Spo:
 		return results
 
 	@staticmethod
+	def __largest_source_url(sources):
+		# The playlist-level rule: of several sizes in one artwork group, the
+		# largest url is the one worth handing on; none means "no image".
+		sources = sources or []
+
+		if not sources:
+			return None
+
+		big = max(
+			sources,
+			key = lambda source: getattr(source, 'width', 0) or 0
+		)
+
+		return getattr(big, 'url', None)
+
+	@staticmethod
+	def __map_track_album(item):
+		# SpotAPI 2 carries the track's album artwork on the track itself; map it
+		# to track['album']['images'] to match the spotipy shape. No artwork maps
+		# to nothing, keeping the returned track byte-identical.
+		album = getattr(item, 'album_of_track', None)
+		cover_art = getattr(album, 'cover_art', None)
+		url = Spo.__largest_source_url(getattr(cover_art, 'sources', None))
+
+		return [{'url': url}] if url else []
+
+	@staticmethod
 	def __map_playlist_track(entry):
 		item = getattr(entry, 'item', None)
 		uri = getattr(item, 'uri', None) or ''
@@ -78,16 +105,21 @@ class Spo:
 			if getattr(getattr(artist, 'profile', None), 'name', None)
 		]
 		name = getattr(item, 'name', None) or 'Unknown'
+		track = {
+			'name': name,
+			'artists': artists or [{'name': 'Unknown'}],
+			'external_urls': {
+				'spotify': f"https://open.spotify.com/track/{ids}"
+			}
+		}
+		album_images = Spo.__map_track_album(item)
+
+		if album_images:
+			track['album'] = {'images': album_images}
 
 		return {
 			'added_at': getattr(entry, 'added_at', None),
-			'track': {
-				'name': name,
-				'artists': artists or [{'name': 'Unknown'}],
-				'external_urls': {
-					'spotify': f"https://open.spotify.com/track/{ids}"
-				}
-			}
+			'track': track
 		}
 
 	@staticmethod
@@ -95,17 +127,10 @@ class Spo:
 		sources = []
 
 		for image in (getattr(getattr(details, 'images', None), 'items', None) or []):
-			c_sources = getattr(image, 'sources', None) or []
+			url = Spo.__largest_source_url(getattr(image, 'sources', None))
 
-			if c_sources:
-				big = max(
-					c_sources,
-					key = lambda source: getattr(source, 'width', 0) or 0
-				)
-				url = getattr(big, 'url', None)
-
-				if url:
-					sources.append({'url': url})
+			if url:
+				sources.append({'url': url})
 
 		return sources
 
