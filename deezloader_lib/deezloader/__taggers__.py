@@ -346,26 +346,53 @@ def write_tags(track: Track):
 	else:
 		__write_mp3(song, song_metadata)
 
-def check_track(track: Track):
-	song = track.song_path
-	f_format = track.file_format
-	is_ok = False
-
+def __open_tags(song, f_format):
+	# One opener for every probe: the format dispatch lives here only, so
+	# check_track and has_complete_tags cannot drift apart. A file without
+	# an ID3 header yields None.
 	if f_format == ".flac":
-		tags = FLAC(song)
-	elif f_format == ".ogg":
-		tags = OggVorbis(song)
-	else:
-		try:
-			tags = ID3(song)
-		except ID3NoHeaderError:
-			return is_ok
+		return FLAC(song)
+
+	if f_format == ".ogg":
+		return OggVorbis(song)
+
+	try:
+		return ID3(song)
+	except ID3NoHeaderError:
+		return None
+
+def __has_picture(tags, f_format):
+	if f_format == ".flac":
+		return len(tags.pictures) > 0
+
+	if f_format == ".ogg":
+		return "metadata_block_picture" in tags
+
+	return len(tags.getall("APIC")) > 0
+
+def check_track(track: Track):
+	tags = __open_tags(track.song_path, track.file_format)
+
+	if tags is None:
+		return False
 
 	l_tags = len(
 		tags.keys()
 	)
 
-	if l_tags >= 14:
-		is_ok = True
+	return l_tags >= 14 and __has_picture(tags, track.file_format)
 
-	return is_ok
+def has_complete_tags(track: Track):
+	# The legacy >=14 tag answer, without the picture requirement: it tells
+	# download_try that the audio is already complete and only artwork is
+	# missing, so the file can be re-tagged instead of downloaded again.
+	tags = __open_tags(track.song_path, track.file_format)
+
+	if tags is None:
+		return False
+
+	l_tags = len(
+		tags.keys()
+	)
+
+	return l_tags >= 14

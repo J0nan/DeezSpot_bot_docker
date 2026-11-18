@@ -3,7 +3,6 @@
 from time import sleep
 from os.path import isfile
 from telegram import ChatAction
-from sqlite3 import IntegrityError
 from telegram.error import BadRequest
 from deezloader.models.track import Track
 from deezloader.models.album import Album
@@ -13,8 +12,10 @@ from deezloader.libutils.utils import request, what_kind
 from inlines.inline_keyboards import create_keyboard_artist
 from deezloader.deezloader.cover_art import fetch_thumb
 
-from .db_help import (
-	write_dwsongs, select_dwsongs, delete_dwsongs
+# One cache implementation for the whole bot: the dwsongs helpers live in
+# utils.db, which helpers.db_help also re-exports.
+from utils.db import (
+	write_db, select_dwsongs, delete_dwsongs
 )
 
 from deezloader.exceptions import (
@@ -56,12 +57,6 @@ l_telegram, l_uploads, l_downloads, l_links = logging_bot()
 
 def log_error(log, exc_info = False):
 	l_downloads.error(log, exc_info = exc_info)
-
-def write_db(track_md5, file_id, n_quality, chat_id, n_method_save):
-	try:
-		write_dwsongs(track_md5, file_id, n_quality, chat_id, n_method_save)
-	except IntegrityError:
-		pass
 
 class DW:
 	def __init__(
@@ -212,7 +207,8 @@ class DW:
 
 		write_db(
 			track_md5, file_id,
-			track_quality, self.__chat_id, self.__method_save
+			track_quality, self.__chat_id, self.__method_save,
+			1 if tag.get('image') else 0
 		)
 
 		self.__upload_audio(file_id)
@@ -329,6 +325,7 @@ class DW:
 					, CURRENT {zip_size} GB :("
 			)
 
+			# TOO BIG rows keep cover_ok NULL: no upload happened
 			write_db(
 				album_md5, "TOO BIG",
 				album_quality, self.__chat_id, self.__method_save
@@ -346,7 +343,8 @@ class DW:
 
 		write_db(
 			album_md5, file_id,
-			album_quality, self.__chat_id, self.__method_save
+			album_quality, self.__chat_id, self.__method_save,
+			1 if album.image else 0
 		)
 
 		self.__upload_zip(file_id)
@@ -426,7 +424,8 @@ class DW:
 
 			write_db(
 				track_md5, file_id,
-				track_quality, self.__chat_id, self.__method_save
+				track_quality, self.__chat_id, self.__method_save,
+				1 if tag.get('image') else 0
 			)
 
 			self.__upload_audio(file_id)
@@ -516,6 +515,7 @@ class DW:
 		if SetConfigs.create_zips:
 			self.__upload_zip_album(album)
 		else:
+			# no zip is uploaded here either: keep the row legacy-trusted
 			write_db(
 				album.album_md5, "TOO BIG",
 				self.__quality, self.__chat_id, self.__method_save
@@ -544,6 +544,12 @@ class DW:
 		link_path = get_url_path(link)
 		match = select_dwsongs(link_path, self.__n_quality, self.__method_save)
 
+		if match and match[1] == 0:
+			# a stored upload without artwork: drop the row so the fresh
+			# download below embeds a cover
+			delete_dwsongs(match[0])
+			match = None
+
 		if match:
 			file_id = match[0]
 
@@ -562,6 +568,12 @@ class DW:
 		self.__set_quality(link)
 		link_path = get_url_path(link)
 		match = select_dwsongs(link_path, self.__n_quality, self.__method_save)
+
+		if match and match[1] == 0:
+			# same rule as __check_track, one level up: the stored zip has
+			# no thumbnail, so fetch and upload the album again
+			delete_dwsongs(match[0])
+			match = None
 
 		if match:
 			file_id = match[0]
@@ -592,6 +604,14 @@ class DW:
 						continue
 
 					c_file_id = c_match[0]
+
+					if c_match[1] == 0:
+						# stored track upload without artwork: drop it and
+						# let __check_track fetch a covered copy
+						delete_dwsongs(c_file_id)
+						self.__check_track(c_link, cover_fallback_url = cover_fallback_url)
+
+						continue
 
 					try:
 						self.__upload_audio(c_file_id)

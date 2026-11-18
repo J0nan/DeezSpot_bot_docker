@@ -4,6 +4,15 @@ from configs.bot_settings import db_name, method_save
 from sqlite3 import connect as db_connect
 from configs.customs import bot_settings_config
 
+# The dwsongs cache has a single implementation in utils.db: stdlib-only, so
+# the bot image and the tests reach the same code. The two names above are the
+# same values utils.db mirrors, and the four functions re-exported here keep
+# the import surface every caller already uses.
+from utils.db import (
+	initialize_db, write_dwsongs,
+	delete_dwsongs, select_dwsongs
+)
+
 users_settings_columns = [
 	setting[1]
 	for setting in bot_settings_config
@@ -21,112 +30,6 @@ for setting in bot_settings_config:
 query_update_users_settings_str_input = query_update_users_settings_str_input[:-1]
 query_insert_users_settings_str_fields = query_insert_users_settings_str_fields[:-1]
 query_insert_users_settings_str_input = query_insert_users_settings_str_input[:-1]
-
-def initialize_db():
-	query_create_table_dwsongs = (
-		"CREATE TABLE IF NOT EXISTS dwsongs(\
-		id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, \
-		link VARCHAR(255) NOT NULL, \
-		file_id VARCHAR(255) UNIQUE NOT NULL, \
-		quality VARCHAR(5) NOT NULL, \
-		date DATE DEFAULT (datetime('now', 'localtime')), \
-		chat_id INT NOT NULL, \
-		method_save INT NOT NULL, \
-		UNIQUE(link, quality, method_save))"
-	)
-
-	query_create_table_users_settings = (
-		"CREATE TABLE IF NOT EXISTS users_settings(\
-		id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, \
-		chat_id INT UNIQUE NOT NULL, \
-		quality VARCHAR(5) NOT NULL, \
-		zips BOOLEAN NOT NULL, \
-		tracks BOOLEAN NOT NULL, \
-		lang VARCHAR(5) NOT NULL, \
-		date DATE DEFAULT (datetime('now', 'localtime')), \
-		source VARCHAR(8) NOT NULL, \
-		method_save INT NOT NULL, \
-		search_method VARCHAR(15) NOT NULL)"
-	)
-
-	query_create_table_banned = (
-		"CREATE TABLE IF NOT EXISTS banned(\
-		id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, \
-		date DATE DEFAULT (datetime('now', 'localtime')), \
-		chat_id INT UNIQUE NOT NULL)"
-	)
-
-	con = db_connect(db_name)
-	cur = con.cursor()
-	cur.execute(query_create_table_dwsongs)
-	cur.execute(query_create_table_users_settings)
-	cur.execute(query_create_table_banned)
-
-	# guarded migration: old DBs carry neither column, and the `date`
-	# column keeps its registration meaning (utils_graphs reads it)
-	cur.execute("PRAGMA table_info(users_settings)")
-	users_settings_existing_columns = [
-		column[1]
-		for column in cur.fetchall()
-	]
-
-	if "last_used" not in users_settings_existing_columns:
-		cur.execute("ALTER TABLE users_settings ADD COLUMN last_used DATE")
-
-	if "username" not in users_settings_existing_columns:
-		cur.execute("ALTER TABLE users_settings ADD COLUMN username VARCHAR(32)")
-
-	con.commit()
-	con.close()
-
-def write_dwsongs(link, file_id, quality, chat_id, method_save=method_save):
-	con = db_connect(db_name)
-	cur = con.cursor()
-	query_insert_dwsongs = "INSERT INTO dwsongs(link, file_id, quality, chat_id, method_save) VALUES (?, ?, ?, ?, ?)"
-
-	cur.execute(
-		query_insert_dwsongs,
-		(
-			link, file_id,
-			quality, chat_id,
-			method_save
-		)
-	)
-
-	con.commit()
-	con.close()
-
-def delete_dwsongs(file_id):
-	con = db_connect(db_name)
-	cur = con.cursor()
-	query_delete_dwsongs = "DELETE FROM dwsongs WHERE file_id = ?"
-
-	cur.execute(
-		query_delete_dwsongs,
-		(
-			file_id,
-		)
-	)
-
-	con.commit()
-	con.close()
-
-def select_dwsongs(link, quality, method_save=method_save):
-	con = db_connect(db_name)
-	cur = con.cursor()
-	query_select_dwsongs = "SELECT file_id FROM dwsongs WHERE link = ? AND quality = ? AND method_save = ?"
-
-	cur.execute(
-		query_select_dwsongs,
-		(
-			link, quality, method_save
-		)
-	)
-
-	match = cur.fetchone()
-	con.close()
-
-	return match
 
 def write_users_settings(chat_id):
 	con = db_connect(db_name)
