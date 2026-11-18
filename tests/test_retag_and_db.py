@@ -49,6 +49,7 @@ from mutagen.oggvorbis import OggVorbis
 
 from deezloader import __taggers__ as taggers
 from deezloader.deezloader import __download__ as dee_dl
+from deezloader.exceptions import TrackNotFound
 from deezloader.spotloader import __download__ as spo_dl
 
 # --- fixture builders (real files, real parsers) ---
@@ -772,14 +773,21 @@ def check_track_seams(dw, link):
 
 	with attr_patch(
 		(download_help.DW, "_DW__upload_audio", lambda self, file_id: served.append(file_id)),
-		(
-			download_help.DW, "_DW__download_track",
-			lambda self, c_link, cover_fallback_url = None: downloaded.append(c_link)
-		),
+		(download_help.DW, "_DW__download_track", landed_recorder(downloaded)),
 	):
 		dw._DW__check_track(link)
 
 	return served, downloaded
+
+def landed_recorder(target):
+	"""A download stub that reports a landed replacement (the delivery signal)."""
+
+	def recorder(self, link, cover_fallback_url = None):
+		target.append(link)
+
+		return True
+
+	return recorder
 
 def test_check_track_serves_a_coverless_row_inside_the_cooldown():
 	quality = download_help.get_quality_dee_s_quality("FLAC")
@@ -860,6 +868,8 @@ def test_a_badrequest_after_a_failed_recovery_deletes_and_downloads():
 
 			db.write_db("track/108", "fresh_file_id", quality, 1, 3, cover_ok = 1)
 
+			return True
+
 		def gone(self, file_id):
 			dead.append(file_id)
 			raise download_help.BadRequest("file_id invalid")
@@ -892,6 +902,8 @@ def test_a_successful_track_recovery_replaces_the_row():
 		def download(self, link, cover_fallback_url = None):
 			downloads.append(link)
 			db.write_db("track/109", "recovered_file_id", quality, 1, 3, cover_ok = 1)
+
+			return True
 
 		with attr_patch(
 			(download_help.DW, "_DW__upload_audio", lambda self, file_id: served.append(file_id)),
@@ -973,10 +985,7 @@ def test_check_album_recovers_a_coverless_zip_once_the_cooldown_expires():
 
 		with attr_patch(
 			(download_help.DW, "_DW__upload_zip", lambda self, file_id: served.append(file_id)),
-			(
-				download_help.DW, "_DW__download_album",
-				lambda self, link, cover_fallback_url = None: downloaded.append(link)
-			),
+			(download_help.DW, "_DW__download_album", landed_recorder(downloaded)),
 		):
 			dw._DW__check_album("https://www.deezer.com/album/201", [])
 
@@ -1072,7 +1081,7 @@ def test_check_album_recovers_a_coverless_track_once_the_cooldown_expires():
 			(download_help.DW, "_DW__upload_audio", lambda self, file_id: audio.append(file_id)),
 			(
 				download_help.DW, "_DW__check_track",
-				lambda self, link, cover_fallback_url = None: recovered.append(link)
+				landed_recorder(recovered)
 			),
 		):
 			dw._DW__check_album(
@@ -1133,7 +1142,7 @@ def test_an_album_zip_refresh_does_not_upload_the_tracks_again():
 			(download_help.DW, "_DW__upload_audio", lambda self, file_id: audio.append(file_id)),
 			(
 				download_help.DW, "_DW__download_album",
-				lambda self, link, cover_fallback_url = None: downloaded.append(link)
+				landed_recorder(downloaded)
 			),
 			(
 				download_help.DW, "_DW__check_track",
@@ -1256,7 +1265,7 @@ def upload_album(album, uploaded_id = "uploaded_zip_id", zip_size = None):
 		patches.append((download_help, "get_size", lambda path, size: zip_size))
 
 	with attr_patch(*patches):
-		dw._DW__upload_zip_album(album)
+		return dw._DW__upload_zip_album(album)
 
 def test_an_album_zip_with_artwork_records_cover_ok_one():
 	with song_dir() as directory:
@@ -1303,6 +1312,167 @@ def test_db_help_startup_still_creates_every_table():
 			connection.close()
 
 	assert {"dwsongs", "users_settings", "banned"} <= tables
+
+def raw_row(db, link):
+	# Every column, so a rolled-back write is proven byte-identical.
+	connection = sqlite3.connect(db.db_name)
+
+	try:
+		return connection.execute(
+			"SELECT id, link, file_id, quality, date, chat_id, method_save, cover_ok, cover_attempted_at \
+			FROM dwsongs WHERE link = ?",
+			(link, )
+		).fetchone()
+	finally:
+		connection.close()
+
+def test_a_swallowed_tracknotfound_recovery_still_serves_the_cached_file_id():
+	# The blocker: a catalog-removed track makes __download_track swallow
+	# TrackNotFound and deliver nothing. A recovery that delivers nothing is a
+	# FAILED recovery, so the still-servable cached file_id must be served --
+	# exactly what the pre-feature baseline did.
+	quality = download_help.get_quality_dee_s_quality("FLAC")
+
+	with temp_db() as db:
+		db.initialize_db()
+		db.write_db("track/110", "servable_file_id", quality, 1, 3, cover_ok = 0)
+		age_cover_attempt(db, "track/110", quality, 3, 7200)
+		dw = download_helper_stub()
+		served = []
+		attempted = []
+
+		def removed(url, **kwargs):
+			attempted.append(url)
+			raise TrackNotFound(url)
+
+		deez_api = SimpleNamespace(download_trackdee = removed)
+
+		with attr_patch(
+			(download_help, "SetConfigs", SimpleNamespace(deez_api = deez_api)),
+			(download_help.DW, "_DW__upload_audio", lambda self, file_id: served.append(file_id)),
+		):
+			dw._DW__check_track("https://www.deezer.com/track/110")
+
+		assert attempted == ["https://www.deezer.com/track/110"]
+		assert served == ["servable_file_id"]
+		assert db.select_dwsongs("track/110", quality, 3)[:2] == ("servable_file_id", 0)
+
+def test_a_failed_per_track_refresh_inside_an_album_serves_the_track_once():
+	quality = download_help.get_quality_dee_s_quality("FLAC")
+
+	with temp_db() as db:
+		db.initialize_db()
+		db.write_db("album/900", "zip_id", quality, 1, 3, cover_ok = 0)
+		db.write_db("track/901", "track_id", quality, 1, 3, cover_ok = 0)
+		age_cover_attempt(db, "album/900", quality, 3, 7200)
+		age_cover_attempt(db, "track/901", quality, 3, 7200)
+		dw = download_helper_stub(tracks = True)
+		served = []
+
+		def refused(self, link, cover_fallback_url = None):
+			return False
+
+		with attr_patch(
+			(download_help.DW, "_DW__upload_audio", lambda self, file_id: served.append(file_id)),
+			(download_help.DW, "_DW__upload_zip", lambda self, file_id: served.append(file_id)),
+			(download_help.DW, "_DW__download_track", refused),
+			(download_help.DW, "_DW__download_album", refused),
+		):
+			dw._DW__check_album(
+				"https://www.deezer.com/album/900",
+				[{"link": "https://www.deezer.com/track/901"}]
+			)
+
+		# the nested per-track guard must not re-serve what the inner
+		# __check_track already delivered when its recovery failed
+		assert served.count("track_id") == 1
+		assert served.count("zip_id") == 1
+
+def test_the_cooldown_boundary_is_exactly_one_hour():
+	quality = download_help.get_quality_dee_s_quality("FLAC")
+
+	with temp_db() as db:
+		db.initialize_db()
+
+		for age, refreshes in ((3599, False), (3600, True), (3601, True)):
+			link_key = f"track/{1200 + age}"
+			cached_id = f"cached_{age}"
+			db.write_db(link_key, cached_id, quality, 1, 3, cover_ok = 0)
+			age_cover_attempt(db, link_key, quality, 3, age)
+			dw = download_helper_stub()
+			served = []
+			downloaded = []
+			deezer_link = f"https://www.deezer.com/{link_key}"
+
+			with attr_patch(
+				(download_help.DW, "_DW__upload_audio", lambda self, file_id: served.append(file_id)),
+				(download_help.DW, "_DW__download_track", landed_recorder(downloaded)),
+			):
+				dw._DW__check_track(deezer_link)
+
+			if refreshes:
+				# 3600 s and beyond: the cooldown is over, the refresh runs
+				assert downloaded == [deezer_link]
+				assert served == []
+			else:
+				# still inside the hour: the cached upload is served as-is
+				assert downloaded == []
+				assert served == [cached_id]
+
+			assert db.select_dwsongs(link_key, quality, 3)[:2] == (cached_id, 0)
+
+def test_a_failed_insert_rolls_back_an_executed_delete():
+	# write_db's atomic replace deletes this key's row before inserting the
+	# new one. When the INSERT then violates UNIQUE(file_id), the already
+	# executed DELETE has to roll back with it.
+	with temp_db() as db:
+		db.initialize_db()
+		db.write_db("deezer.com/track/12", "orig_id", "FLAC", 1, 3, cover_ok = 0)
+		db.write_db("deezer.com/track/13", "dup_id", "FLAC", 1, 3, cover_ok = 1)
+		before = raw_row(db, "deezer.com/track/12")
+		other = raw_row(db, "deezer.com/track/13")
+
+		assert before is not None
+		assert before[2] == "orig_id"
+
+		# same key (link, quality, method_save) -> the DELETE matches, then the
+		# INSERT collides with the other row's file_id
+		db.write_db("deezer.com/track/12", "dup_id", "FLAC", 9, 3, cover_ok = 0)
+
+		assert raw_row(db, "deezer.com/track/12") == before
+		assert raw_row(db, "deezer.com/track/13") == other
+
+def test_a_zip_that_never_landed_keeps_the_cached_zip_servable():
+	quality = download_help.get_quality_dee_s_quality("FLAC")
+
+	with song_dir() as directory:
+		with temp_db() as db:
+			db.initialize_db()
+			# a TOO BIG zip uploads nothing at all: no delivery signal
+			assert upload_album(
+				album_for_upload(directory, make_jpeg()), zip_size = 99.0
+			) is False
+
+			db.write_db("album/211", "servable_zip_id", quality, 1, 3, cover_ok = 0)
+			age_cover_attempt(db, "album/211", quality, 3, 7200)
+			dw = download_helper_stub()
+			served = []
+			attempted = []
+
+			def no_delivery(self, link, cover_fallback_url = None):
+				attempted.append(link)
+
+				return False
+
+			with attr_patch(
+				(download_help.DW, "_DW__upload_zip", lambda self, file_id: served.append(file_id)),
+				(download_help.DW, "_DW__download_album", no_delivery),
+			):
+				dw._DW__check_album("https://www.deezer.com/album/211", [])
+
+			assert attempted == ["https://www.deezer.com/album/211"]
+			assert served == ["servable_zip_id"]
+			assert db.select_dwsongs("album/211", quality, 3)[:2] == ("servable_zip_id", 0)
 
 def _run_standalone():
 	failures = 0

@@ -182,7 +182,7 @@ class DW:
 				text = f"Cannot download {track.link} :("
 			)
 
-			return
+			return False
 
 		track_size = get_size(c_path, "gb")
 
@@ -194,7 +194,7 @@ class DW:
 					, CURRENT {track_size} GB :("
 			)
 
-			return
+			return False
 
 		if track_quality != self.__n_quality:
 			bot.send_message(
@@ -218,7 +218,7 @@ class DW:
 		if file_id.audio:
 			file_id = file_id.audio.file_id
 		else:
-			return
+			return False
 
 		write_db(
 			track_md5, file_id,
@@ -227,6 +227,10 @@ class DW:
 		)
 
 		self.__upload_audio(file_id)
+
+		# Delivery signal: True only when the upload actually landed. The
+		# cover-refresh guard serves the cached file_id when it did not.
+		return True
 
 	def __download_track(self, url, cover_fallback_url = None):
 		try:
@@ -259,19 +263,21 @@ class DW:
 				text = f"Cannot download {url} :("
 			)
 
-			return
+			return False
 
 		progress_message_id = bot.send_message(
 			chat_id = self.__chat_id,
 			text = f"Starting uploading {track.song_name} ..."
 		).message_id
 
-		self.__upload_audio_track(track)
+		delivered = self.__upload_audio_track(track)
 
 		bot.delete_message(
 			chat_id = self.__chat_id,
 			message_id = progress_message_id
 		)
+
+		return delivered
 
 	def __progress_status(self, current, total, times, album_name):
 		c_time = times[0]
@@ -346,7 +352,7 @@ class DW:
 				album_quality, self.__chat_id, self.__method_save
 			)
 
-			return
+			return False
 
 		file_id = SetConfigs.tg_user_api.send_document(
 			chat_id = bunker_channel,
@@ -364,6 +370,9 @@ class DW:
 		)
 
 		self.__upload_zip(file_id)
+
+		# Delivery signal: the zip really landed in the bunker channel.
+		return True
 
 	def __upload_audio_album(
 		self,
@@ -529,13 +538,15 @@ class DW:
 		)
 
 		if SetConfigs.create_zips:
-			self.__upload_zip_album(album)
+			return self.__upload_zip_album(album)
 		else:
 			# no zip is uploaded here either: keep the row legacy-trusted
 			write_db(
 				album.album_md5, "TOO BIG",
 				self.__quality, self.__chat_id, self.__method_save
 			)
+
+			return False
 
 	def __send_for_debug(self, link, error):
 		err_str = f"ERROR WITH THIS LINK {link} {self.__quality}"
@@ -567,8 +578,9 @@ class DW:
 		# deleted. A cover_ok == 0 row is refreshed in place -- the stored
 		# file_id stays servable until the replacement upload succeeds -- and
 		# the cooldown bounds retries for permanently coverless content.
-		# Returns True when the refresh ran (the recovery already delivered
-		# everything), False when the cached row was the answer.
+		# Returns (delivered, refreshed): delivered is True when the user got
+		# audio (a landed replacement OR the cached file_id); refreshed is True
+		# only when a whole replacement landed (the album loop-skip signal).
 		file_id, cover_ok, cover_attempted_at = match
 
 		if cover_ok == 0:
@@ -580,10 +592,11 @@ class DW:
 				l_downloads.info(f"cover refresh attempted for {link}")
 
 				try:
-					# the recovery upload writes the replacement row itself
-					recover()
-
-					return True
+					# the recovery upload writes the replacement row itself and
+					# reports True only when that upload really landed: a
+					# recovery that delivered nothing is a failed recovery
+					if recover():
+						return True, True
 				except Exception as error:
 					l_downloads.warning(
 						f"cover refresh failed for {link}: {error!r}, serving cached file_id"
@@ -593,11 +606,12 @@ class DW:
 
 		try:
 			serve(file_id)
+
+			return True, False
 		except BadRequest:
 			delete_dwsongs(file_id)
-			retry()
 
-		return False
+			return bool(retry()), False
 
 	def __check_track(self, link, cover_fallback_url = None):
 		self.__set_quality(link)
@@ -605,17 +619,21 @@ class DW:
 		match = select_dwsongs(link_path, self.__n_quality, self.__method_save)
 
 		if match:
-			self.__serve_or_refresh(
+			# True when the user got audio (landed replacement or cached
+			# file_id); the cover guard is its only consumer.
+			return self.__serve_or_refresh(
 				link, match,
 				lambda: self.__download_track(link, cover_fallback_url = cover_fallback_url),
 				lambda file_id: self.__upload_audio(file_id),
 				lambda: self.__check_track(link, cover_fallback_url = cover_fallback_url)
-			)
+			)[0]
 		else:
 			try:
-				self.__download_track(link, cover_fallback_url = cover_fallback_url)
+				return self.__download_track(link, cover_fallback_url = cover_fallback_url)
 			except Exception as error:
 				self.__send_for_debug(link, error)
+
+				return False
 
 	def __check_album(self, link, tracks, cover_fallback_url = None):
 		self.__set_quality(link)
@@ -624,10 +642,11 @@ class DW:
 
 		if match:
 			# TOO BIG marks a zip that was never uploaded: nothing to serve
+			delivered = False
 			refreshed = False
 
 			if match[0] != "TOO BIG":
-				refreshed = self.__serve_or_refresh(
+				delivered, refreshed = self.__serve_or_refresh(
 					link, match,
 					lambda: self.__download_album(link, cover_fallback_url = cover_fallback_url),
 					lambda zip_id: self.__upload_zip(zip_id),
@@ -660,11 +679,15 @@ class DW:
 						lambda track_id: self.__upload_audio(track_id),
 						lambda: self.__check_track(c_link, cover_fallback_url = cover_fallback_url)
 					)
+
+			return delivered
 		else:
 			try:
-				self.__download_album(link, cover_fallback_url = cover_fallback_url)
+				return self.__download_album(link, cover_fallback_url = cover_fallback_url)
 			except Exception as error:
 				self.__send_for_debug(link, error)
+
+				return False
 
 	def __send_photo(
 		self, chat_id,
