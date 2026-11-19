@@ -65,6 +65,27 @@ __TRAILING_BRACKET = re_compile(r"^(?P<head>.*?)\s*[\(\[](?P<body>[^\(\)\[\]]*)[
 # separators creators use between artist and song, in order of confidence
 __ARTIST_SEPARATORS = (" - ", " – ", " — ")
 
+# Telegram rejects a thumb above 200 KB; a 640-wide video miniature stays far
+# below it while still looking sharp on a phone
+THUMBNAIL_MAX_WIDTH = 640
+
+def _cover_url(info):
+	thumbnails = [
+		thumbnail
+		for thumbnail in (info.get("thumbnails") or [])
+		if isinstance(thumbnail, dict) and thumbnail.get("url") and thumbnail.get("width")
+	]
+	fitting = [
+		thumbnail
+		for thumbnail in thumbnails
+		if thumbnail["width"] <= THUMBNAIL_MAX_WIDTH
+	]
+
+	if fitting:
+		return max(fitting, key = lambda thumbnail: thumbnail["width"])["url"]
+
+	return info.get("thumbnail") or ""
+
 def _host(link):
 	netloc = urlparse(link).netloc.lower()
 
@@ -243,7 +264,7 @@ def build_yt_metadata(info, deezer_track = None):
 		"duration": int(duration),
 		# always the video miniature: the user asked for the video art, not
 		# the matched Deezer cover
-		"cover_url": info.get("thumbnail") or "",
+		"cover_url": _cover_url(info),
 	}
 
 def search_query(meta):
