@@ -75,7 +75,12 @@ bot_settings_config = [
 	("Language", "lang", "en"),
 	("Download Source", "source", "Dee"),
 	("Search Method", "search_method", "results_audio_article"),
-	("Save Method", "method_save", "1")
+	("Save Method", "method_save", "1"),
+	# Appended LAST on purpose: utils/db.py, utils_users_bot.py and
+	# inlines/inline_keyboards.py read these columns by position, so a new
+	# setting only ever goes at the end. "Search" = show the Deezer results
+	# with the YouTube download button, "Download" = fetch the video directly.
+	("YouTube links", "youtube", "Search")
 ]
 
 send_image_track_query = (

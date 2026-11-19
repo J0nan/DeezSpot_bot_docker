@@ -83,7 +83,7 @@ __l_bot_settings = len(bot_settings_config)
 
 def create_keyboard_settings(datas):
 
-	settings_x = [0, 1, 2, 4, 6] #bot_settings_config you want to show, setting is in customs (index 5 "Search Method" is hidden, the DB column stays untouched)
+	settings_x = [0, 1, 2, 4, 6, 7] #bot_settings_config you want to show, setting is in customs (index 5 "Search Method" is hidden, the DB column stays untouched)
 
 	bot_settings_configs = [bot_settings_config[i] for i in settings_x]
 	datas = [list(datas.values())[i] for i in settings_x]

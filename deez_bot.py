@@ -399,6 +399,18 @@ def handle_callback_queries(update: Update, context):
 		c_keyboard = create_keyboard_settings(c_user_data)
 		user_setting_save_db(chat_id, c_user_data)
 
+	elif data == "/edit_setting_youtube":
+		# the stored value is the label the keyboard shows, like Download Source
+		youtube = c_user_data['youtube']
+
+		if youtube == "Download":
+			c_user_data['youtube'] = "Search"
+		else:
+			c_user_data['youtube'] = "Download"
+
+		c_keyboard = create_keyboard_settings(c_user_data)
+		user_setting_save_db(chat_id, c_user_data)
+
 	elif data.startswith("/unban_"):
 		c_data = data.replace("/unban_", "")
 		c_chat_id = int(c_data)

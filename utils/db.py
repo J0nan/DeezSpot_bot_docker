@@ -40,7 +40,8 @@ def initialize_db():
 		date DATE DEFAULT (datetime('now', 'localtime')), \
 		source VARCHAR(8) NOT NULL, \
 		method_save INT NOT NULL, \
-		search_method VARCHAR(15) NOT NULL)"
+		search_method VARCHAR(15) NOT NULL, \
+		youtube VARCHAR(10) NOT NULL DEFAULT 'Search')"
 	)
 
 	query_create_table_banned = (
@@ -69,6 +70,11 @@ def initialize_db():
 
 	if "username" not in users_settings_existing_columns:
 		cur.execute("ALTER TABLE users_settings ADD COLUMN username VARCHAR(32)")
+
+	# additive YouTube behaviour column: every existing row keeps the default
+	# Deezer search, so the migration never changes how a user downloads
+	if "youtube" not in users_settings_existing_columns:
+		cur.execute("ALTER TABLE users_settings ADD COLUMN youtube VARCHAR(10) NOT NULL DEFAULT 'Search'")
 
 	# additive cover flag: existing rows keep NULL (legacy, trusted), so the
 	# migration never re-uploads the whole cache

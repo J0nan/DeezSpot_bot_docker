@@ -68,6 +68,7 @@ def users_set_cache(chat_id, users_data):
 		source = match[4]
 		search_method = match[5]
 		method_save = match[6] 
+		youtube = match[7]
 
 		users_data[chat_id] = {
 			"quality": quality,
@@ -77,6 +78,8 @@ def users_set_cache(chat_id, users_data):
 			"source": source,
 			"search_method": search_method,
 			"method_save": method_save, 
+			# appended last to mirror bot_settings_config order
+			"youtube": youtube,
 			"last_message": None,
 			"messages_sent": 0,
 			"times": 0,
