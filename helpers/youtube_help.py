@@ -27,12 +27,16 @@ from utils.thumb_utils import make_thumb_io
 from utils.utils import get_size, set_path
 from utils.utils_data import execute_search, track_dee_data
 from utils.youtube import (
+	YOUTUBE_BASE_OPTIONS,
 	build_yt_metadata, cache_key, download_options,
 	mp3_path, search_query, tag_payload, video_url, write_mp3_tags,
 	youtube_video_id
 )
 
-from configs.customs import send_image_track_query, track_too_long
+from configs.customs import (
+	send_image_track_query, track_too_long,
+	youtube_unbounded_msg
+)
 
 from configs.bot_settings import (
 	bunker_channel, output_songs,
@@ -46,12 +50,9 @@ bot = SetConfigs.tg_bot_api.bot
 YOUTUBE_QUALITY = "MP3_320"
 
 YOUTUBE_INFO_OPTIONS = {
-	"quiet": True,
-	"no_warnings": True,
-	"noprogress": True,
+	**YOUTUBE_BASE_OPTIONS,
+	# metadata only: the download runs later, in the worker thread
 	"skip_download": True,
-	"noplaylist": True,
-	"socket_timeout": 20,
 }
 
 def youtube_dir():
@@ -82,10 +83,10 @@ def fetch_video_info(video_id):
 
 	return info
 
-def download_audio(video_id):
+def download_audio(video_id, suffix = None):
 	# bestaudio -> mp3 320 through yt-dlp's ffmpeg postprocessor
 	directory = youtube_dir()
-	options = download_options(video_id, directory)
+	options = download_options(video_id, directory, suffix)
 
 	try:
 		import yt_dlp
@@ -97,7 +98,7 @@ def download_audio(video_id):
 
 		return None
 
-	path = mp3_path(video_id, directory)
+	path = mp3_path(video_id, directory, suffix)
 
 	if not isfile(path):
 		return None
@@ -127,7 +128,8 @@ def fetch_cover(meta):
 def deezer_track(deezer_id):
 	# Only used to fill album/release date YouTube rarely reports; the id comes
 	# from the track the search matched, never from user input alone.
-	if not deezer_id:
+	if not deezer_id or not str(deezer_id).isdigit():
+		# callback data is client-forgeable: only digits may reach the URL
 		return None
 
 	try:
@@ -330,6 +332,24 @@ class YT:
 		meta = build_yt_metadata(info, deezer_track(deezer_id))
 		self.__send_card(meta)
 
+		# a live/upcoming stream reports no fixed duration, so the length limit
+		# below cannot bound it: refuse instead of recording until it ends
+		if info.get("is_live") or info.get("live_status") in ("is_live", "is_upcoming"):
+			bot.send_message(
+				chat_id = self.__chat_id,
+				text = youtube_unbounded_msg
+			)
+
+			return
+
+		if not meta["duration"]:
+			bot.send_message(
+				chat_id = self.__chat_id,
+				text = youtube_unbounded_msg
+			)
+
+			return
+
 		if meta["duration"] > seconds_limits_track:
 			bot.send_message(
 				chat_id = self.__chat_id,
@@ -356,7 +376,7 @@ class YT:
 		).message_id
 
 		try:
-			path = download_audio(video_id)
+			path = download_audio(video_id, self.__hash_link)
 
 			if path is None:
 				bot.send_message(

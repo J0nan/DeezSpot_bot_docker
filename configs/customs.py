@@ -22,6 +22,9 @@ banning_msg2 = "CONGRATULATIONS YOU ARE BANNED =)"
 
 album_too_long = "DON'T YOU GET BORE LISTENING AN ALBUM SO LONG :)))"
 track_too_long = "DON'T YOU GET BORE LISTENING A TRACK SO LONG :)))"
+# Live and upcoming streams report no fixed duration, so the length limit
+# cannot bound them: they are refused up front instead of recording forever.
+youtube_unbounded_msg = "LIVE OR UNKNOWN-LENGTH VIDEOS CANNOT BE DOWNLOADED :("
 
 shazam_function_msg = "You found a fantastic function, if you send a vocal message or an audio, you will see :)"
 max_download_user_msg = "You have reached, max download per time available, wait or kill someone :)"

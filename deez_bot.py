@@ -567,17 +567,24 @@ def handle_callback_queries(update: Update, context):
 		token = s_data[0]
 		c_video_id = s_data[1] if len(s_data) > 1 else ""
 		# a malformed/forged id answers the callback instead of starting a
-		# download; the token only cleans the view up afterwards
-		c_deezer_id = s_data[2] if len(s_data) > 2 and s_data[2] else None
+		# download; the token only cleans the view up afterwards, and the
+		# Deezer id is digits-only because it is interpolated into a URL
+		c_deezer_id = s_data[2] if len(s_data) > 2 and s_data[2].isdigit() else None
 
 		if not is_video_id(c_video_id):
 			answer = "Sorry isn't avalaible :("
 		else:
-			start_youtube_download(
+			started = start_youtube_download(
 				chat_id, c_video_id, c_user_data, c_deezer_id
 			)
 
-			delete_search_messages(bot, chat_id, msg_id, token)
+			if started:
+				# the download cleans the search up behind it
+				delete_search_messages(bot, chat_id, msg_id, token)
+			else:
+				# the per-user cap refused it: keep the card and its button so
+				# the user can retry once a slot frees up
+				answer = "TOO MANY DOWNLOADS, TRY AGAIN LATER"
 
 	elif data.startswith("/ctx:"):
 		mode = "ctx"

@@ -73,7 +73,9 @@ def start_download(chat_id, user_data, link, worker_class, args = ()):
 	# c_downloads registration live here instead of being copied per flow.
 	c_downloads = user_data['c_downloads']
 
-	if len(c_downloads) == max_download_user:
+	# >= instead of the old ==: an over-cap map (two taps racing the check)
+	# used to disable the guard for good
+	if len(c_downloads) >= max_download_user:
 		bot.send_message(
 			chat_id = chat_id,
 			text = max_download_user_msg

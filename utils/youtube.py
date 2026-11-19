@@ -65,9 +65,24 @@ __TRAILING_BRACKET = re_compile(r"^(?P<head>.*?)\s*[\(\[](?P<body>[^\(\)\[\]]*)[
 # separators creators use between artist and song, in order of confidence
 __ARTIST_SEPARATORS = (" - ", " – ", " — ")
 
+# A left half longer than this is a sentence, not a performer name: only a
+# short prefix is trusted as the artist when splitting "Artist - Song".
+ARTIST_SPLIT_MAX = 60
+
 # Telegram rejects a thumb above 200 KB; a 640-wide video miniature stays far
 # below it while still looking sharp on a phone
 THUMBNAIL_MAX_WIDTH = 640
+
+# yt-dlp options shared by the metadata probe and the download, so a timeout
+# or warning change can never land on one path only
+YOUTUBE_BASE_OPTIONS = {
+	"quiet": True,
+	"no_warnings": True,
+	"noprogress": True,
+	# a pasted watch?v=...&list=... must never pull the whole playlist
+	"noplaylist": True,
+	"socket_timeout": 20,
+}
 
 def _cover_url(info):
 	thumbnails = [
@@ -187,7 +202,7 @@ def split_artist_title(title):
 		artist = parts[0].strip()
 		song = parts[1].strip()
 
-		if artist and song and len(artist) <= 60:
+		if artist and song and len(artist) <= ARTIST_SPLIT_MAX:
 			return artist, song
 
 	return "", title
@@ -254,9 +269,6 @@ def build_yt_metadata(info, deezer_track = None):
 
 			artist = uploader
 
-	if not title:
-		title = clean_title(raw_title)
-
 	duration = info.get("duration") or dz_duration or 0
 
 	return {
@@ -280,7 +292,7 @@ def search_query(meta):
 		if part
 	).strip()
 
-def tag_payload(meta, method_save = None):
+def tag_payload(meta):
 	# The keys set_path reads for every method_save scheme; a YouTube file has
 	# no track number or ISRC, so those keep neutral values.
 	return {
@@ -367,19 +379,24 @@ def write_mp3_tags(path, meta, cover_bytes = None):
 
 	return True
 
-def download_options(video_id, output_dir):
+def output_stem(video_id, suffix = None):
+	# A per-download suffix is what keeps two users fetching the same video
+	# from writing one file: yt-dlp overwrites its output and the tagger reads
+	# it back. Leftovers stay under Songs/youtube and the periodic sweep
+	# clears that folder.
+	if suffix:
+		return f"yt_{video_id}_{suffix}"
+
+	return f"yt_{video_id}"
+
+def download_options(video_id, output_dir, suffix = None):
 	# bestaudio first: the source stream is never re-encoded downward, only
 	# converted to the mp3 the user asked for, at the maximum MP3 bitrate.
 	return {
+		**YOUTUBE_BASE_OPTIONS,
 		"format": "bestaudio/best",
-		"outtmpl": join(output_dir, f"yt_{video_id}.%(ext)s"),
-		# a pasted watch?v=...&list=... must never pull the whole playlist
-		"noplaylist": True,
-		"quiet": True,
-		"no_warnings": True,
-		"noprogress": True,
+		"outtmpl": join(output_dir, f"{output_stem(video_id, suffix)}.%(ext)s"),
 		"overwrites": True,
-		"socket_timeout": 20,
 		"postprocessors": [
 			{
 				"key": "FFmpegExtractAudio",
@@ -389,5 +406,5 @@ def download_options(video_id, output_dir):
 		],
 	}
 
-def mp3_path(video_id, output_dir):
-	return join(output_dir, f"yt_{video_id}.mp3")
+def mp3_path(video_id, output_dir, suffix = None):
+	return join(output_dir, f"{output_stem(video_id, suffix)}.mp3")
