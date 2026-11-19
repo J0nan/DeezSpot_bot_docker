@@ -55,8 +55,9 @@ what_can_I_do = (
 	"Glad you asked, I can do:\
 	\n1): Download songs in three different qualities (/quality)\
 	\n2): Zip sending\
-	\n3): I hope enough performing JAJAJAJAJAJ\
-	\n4): I am too lazy to continue, found out by yourself :)"
+	\n3): Search Deezer with text, and turn a YouTube link into a Deezer search or a direct mp3 download (/settings)\
+	\n4): I hope enough performing JAJAJAJAJAJ\
+	\n5): I am too lazy to continue, found out by yourself :)"
 )
 
 save_methods = (
