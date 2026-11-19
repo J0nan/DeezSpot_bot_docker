@@ -9,7 +9,8 @@ cover it), uploads the audio to the bunker channel once and serves the file_id
 from the dwsongs cache afterwards.
 """
 
-from os.path import isfile
+from os import makedirs
+from os.path import isfile, join
 from telegram import ChatAction
 from telegram.error import BadRequest
 from configs.set_configs import SetConfigs
@@ -53,16 +54,25 @@ YOUTUBE_INFO_OPTIONS = {
 	"socket_timeout": 20,
 }
 
+def youtube_dir():
+	# Nested under the download root on purpose: the bot's periodic sweep wipes
+	# the SUBDIRECTORIES of output_songs, so a leftover mp3 from a crashed
+	# worker is cleaned like an album folder instead of living forever.
+	directory = join(output_songs, "youtube")
+	makedirs(directory, exist_ok = True)
+
+	return directory
+
 def fetch_video_info(video_id):
 	# Metadata only: the download runs later, in the worker thread.
-	import yt_dlp
-
 	try:
+		import yt_dlp
+
 		with yt_dlp.YoutubeDL(YOUTUBE_INFO_OPTIONS) as ydl:
 			info = ydl.extract_info(video_url(video_id), download = False)
 	except Exception as error:
-		# geo blocks, private/age gated videos, a network hiccup: the caller
-		# still has a video id to offer the download with
+		# geo blocks, private/age gated videos, a missing yt-dlp install or a
+		# network hiccup: the caller still has a video id to offer the download
 		l_downloads.warning(f"youtube info failed for {video_id}: {error!r}")
 
 		return None
@@ -74,11 +84,12 @@ def fetch_video_info(video_id):
 
 def download_audio(video_id):
 	# bestaudio -> mp3 320 through yt-dlp's ffmpeg postprocessor
-	import yt_dlp
-
-	options = download_options(video_id, output_songs)
+	directory = youtube_dir()
+	options = download_options(video_id, directory)
 
 	try:
+		import yt_dlp
+
 		with yt_dlp.YoutubeDL(options) as ydl:
 			ydl.download([video_url(video_id)])
 	except Exception as error:
@@ -86,7 +97,7 @@ def download_audio(video_id):
 
 		return None
 
-	path = mp3_path(video_id, output_songs)
+	path = mp3_path(video_id, directory)
 
 	if not isfile(path):
 		return None

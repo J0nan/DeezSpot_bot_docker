@@ -128,13 +128,15 @@ def extract_supported_link(text, entities):
 	return __extract_entity_link(text, entities, is_supported_link)
 
 def extract_media_link(text, entities):
-	# Both link families a message may carry: Deezer/Spotify links keep the
-	# download flow, YouTube links go to their own handler. Same scan, same
-	# UTF-16 slicing as the music-only extractor above.
-	return __extract_entity_link(
-		text, entities,
-		lambda link: is_supported_link(link) or is_youtube_link(link)
-	)
+	# The music families keep absolute priority (a message carrying both a
+	# Deezer and a YouTube link still downloads from Deezer, exactly as
+	# before); only when none is present does the scan accept a YouTube link.
+	supported = extract_supported_link(text, entities)
+
+	if supported:
+		return supported
+
+	return __extract_entity_link(text, entities, is_youtube_link)
 
 def __get_tronc(string):
 	l_encoded = len(
