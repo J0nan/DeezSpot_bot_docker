@@ -22,8 +22,10 @@ YOUTUBE_HOSTS = {
 	"youtu.be",
 }
 
-# YouTube ids are exactly eleven URL-safe characters
-VIDEO_ID_PATTERN = re_compile(r"^[A-Za-z0-9_-]{11}$")
+# YouTube ids are exactly eleven URL-safe characters. Matched with fullmatch:
+# `$` alone also matches before a trailing newline, which forged callback data
+# could smuggle into the watch URL and the output filename.
+VIDEO_ID_PATTERN = re_compile(r"[A-Za-z0-9_-]{11}")
 
 # path prefixes that carry the id as their own next segment
 YOUTUBE_ID_PATHS = {"shorts", "embed", "live", "v"}
@@ -146,7 +148,7 @@ def youtube_video_id(link):
 	if not candidate:
 		candidate = (query.get("v") or [None])[0]
 
-	if candidate and VIDEO_ID_PATTERN.match(candidate):
+	if candidate and VIDEO_ID_PATTERN.fullmatch(candidate):
 		return candidate
 
 	return None
@@ -156,7 +158,7 @@ def video_url(video_id):
 
 def is_video_id(value):
 	# validation for ids that arrive back from a callback payload
-	return isinstance(value, str) and bool(VIDEO_ID_PATTERN.match(value))
+	return isinstance(value, str) and bool(VIDEO_ID_PATTERN.fullmatch(value))
 
 def cache_key(video_id):
 	# namespaced so a dwsongs row can never collide with a Deezer/Spotify path
@@ -223,7 +225,7 @@ def normalize_date(raw):
 	month = digits[4:6]
 	day = digits[6:8]
 
-	if not year.isdigit() or int(month) < 1 or int(month) > 12:
+	if int(month) < 1 or int(month) > 12:
 		return ""
 
 	if int(day) < 1 or int(day) > 31:

@@ -72,6 +72,12 @@ save_methods = (
     #"4: {tracknumber}. {music}" example
 )
 
+# The two behaviours a pasted YouTube link can have in /settings. The value is
+# stored as the label users see, like Download Source. utils/db.py mirrors the
+# default in its DDL because that module stays stdlib-only for the tests.
+youtube_search_mode = "Search"
+youtube_download_mode = "Download"
+
 bot_settings_config = [
 	("Quality", "quality", "MP3_320"),
 	("Send zips", "zips", True),
@@ -84,7 +90,7 @@ bot_settings_config = [
 	# inlines/inline_keyboards.py read these columns by position, so a new
 	# setting only ever goes at the end. "Search" = show the Deezer results
 	# with the YouTube download button, "Download" = fetch the video directly.
-	("YouTube links", "youtube", "Search")
+	("YouTube links", "youtube", youtube_search_mode)
 ]
 
 send_image_track_query = (

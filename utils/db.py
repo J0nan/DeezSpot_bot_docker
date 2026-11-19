@@ -72,7 +72,9 @@ def initialize_db():
 		cur.execute("ALTER TABLE users_settings ADD COLUMN username VARCHAR(32)")
 
 	# additive YouTube behaviour column: every existing row keeps the default
-	# Deezer search, so the migration never changes how a user downloads
+	# Deezer search, so the migration never changes how a user downloads.
+	# 'Search' mirrors configs.customs.youtube_search_mode; the literal stays
+	# here because this module is stdlib-only on purpose.
 	if "youtube" not in users_settings_existing_columns:
 		cur.execute("ALTER TABLE users_settings ADD COLUMN youtube VARCHAR(10) NOT NULL DEFAULT 'Search'")
 

@@ -43,7 +43,8 @@ from configs.customs import (
 	shazam_function_msg,
 	help_msg, help_photo, feedback_text, what_can_I_do,
 	donate_text, reasons_text, startup_text, save_methods,
-	artist_commands_queries
+	artist_commands_queries,
+	youtube_download_mode, youtube_search_mode
 )
 
 from configs.bot_settings import (
@@ -399,10 +400,10 @@ def handle_callback_queries(update: Update, context):
 		# the stored value is the label the keyboard shows, like Download Source
 		youtube = c_user_data['youtube']
 
-		if youtube == "Download":
-			c_user_data['youtube'] = "Search"
+		if youtube == youtube_download_mode:
+			c_user_data['youtube'] = youtube_search_mode
 		else:
-			c_user_data['youtube'] = "Download"
+			c_user_data['youtube'] = youtube_download_mode
 
 		c_keyboard = create_keyboard_settings(c_user_data)
 		user_setting_save_db(chat_id, c_user_data)

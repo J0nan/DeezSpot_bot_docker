@@ -35,7 +35,7 @@ from utils.youtube import (
 
 from configs.customs import (
 	send_image_track_query, track_too_long,
-	youtube_unbounded_msg
+	youtube_download_mode, youtube_unbounded_msg
 )
 
 from configs.bot_settings import (
@@ -192,12 +192,13 @@ def search_youtube(chat_id, video_id, user_data, user_message_id = None):
 
 	if items:
 		message = send_list(
-			bot, chat_id, token, items,
-			display, True, "all", 0, youtube
+			bot, chat_id, token, items, display,
+			has_filters = True, scope = "all", page = 0,
+			youtube = youtube
 		)
 
 	else:
-		# S2: the row is offered even when Deezer found nothing
+		# the row is offered even when Deezer found nothing
 		if display:
 			caption = (
 				list_caption(display, items) +
@@ -230,7 +231,7 @@ def handle_youtube_link(chat_id, link, user_data, user_message_id = None):
 
 		return
 
-	if user_data.get("youtube") == "Download":
+	if user_data.get("youtube") == youtube_download_mode:
 		start_youtube_download(chat_id, video_id, user_data)
 
 		return

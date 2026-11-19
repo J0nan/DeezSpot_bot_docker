@@ -466,7 +466,7 @@ def edit_card(bot, chat_id, message_id, token, items, index, user_data, youtube 
 def send_not_found(bot, chat_id, caption = None, reply_markup = None):
 	# caption/reply_markup let a caller keep the 404 image but carry its own
 	# buttons: a YouTube link whose Deezer search found nothing still has a
-	# download to offer (S2). Defaults preserve the plain 404 card.
+	# download to offer. Defaults preserve the plain 404 card.
 	caption = not_found_title if caption is None else caption
 
 	try:
