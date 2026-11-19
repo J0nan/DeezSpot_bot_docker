@@ -139,6 +139,10 @@ def youtube_video_id(link):
 def video_url(video_id):
 	return f"https://www.youtube.com/watch?v={video_id}"
 
+def is_video_id(value):
+	# validation for ids that arrive back from a callback payload
+	return isinstance(value, str) and bool(VIDEO_ID_PATTERN.match(value))
+
 def cache_key(video_id):
 	# namespaced so a dwsongs row can never collide with a Deezer/Spotify path
 	return f"youtube/{video_id}"

@@ -6,6 +6,7 @@ from shutil import disk_usage, rmtree
 from helpers.db_help import initialize_db
 from libtmux import Server as tmux_server
 from .converter_bytes import convert_bytes_to
+from .youtube import is_youtube_link
 from deezloader.libutils.utils import var_excape
 from deezloader.deezloader.deezer_settings import qualities as dee_qualities
 from deezloader.spotloader.spotify_settings import qualities as spo_qualities
@@ -100,7 +101,7 @@ def __utf16_slice(string, offset, length):
 		# boundary splits a surrogate pair: no clean candidate
 		return None
 
-def extract_supported_link(text, entities):
+def __extract_entity_link(text, entities, accept):
 	# entity types are the python-telegram-bot v13 string values so this
 	# scan stays importable without telegram itself
 	if not entities:
@@ -118,10 +119,22 @@ def extract_supported_link(text, entities):
 		else:
 			continue
 
-		if candidate and is_supported_link(candidate):
+		if candidate and accept(candidate):
 			return candidate
 
 	return None
+
+def extract_supported_link(text, entities):
+	return __extract_entity_link(text, entities, is_supported_link)
+
+def extract_media_link(text, entities):
+	# Both link families a message may carry: Deezer/Spotify links keep the
+	# download flow, YouTube links go to their own handler. Same scan, same
+	# UTF-16 slicing as the music-only extractor above.
+	return __extract_entity_link(
+		text, entities,
+		lambda link: is_supported_link(link) or is_youtube_link(link)
+	)
 
 def __get_tronc(string):
 	l_encoded = len(

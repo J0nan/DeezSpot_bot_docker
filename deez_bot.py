@@ -12,12 +12,13 @@ from configs.set_configs import SetConfigs
 SetConfigs(mode_bot)
 
 from sys import argv
-from hashlib import md5
 #from signal import SIGTERM
 #from os import getpid, kill
-from time import sleep, time
+from time import sleep
 from telegram import ParseMode
-from helpers.download_help import DW
+from helpers.download_help import DW, start_download
+from helpers.youtube_help import handle_youtube_link, start_youtube_download
+from utils.youtube import is_video_id, is_youtube_link
 from pyrogram import idle as tg_user_start
 from utils.special_thread import magicThread
 from utils.converter_bytes import convert_bytes_to
@@ -39,7 +40,7 @@ from helpers.db_help import (
 
 from configs.customs import (
 	not_found_query_gif, shazam_audio_query,
-	shazam_function_msg, max_download_user_msg,
+	shazam_function_msg,
 	help_msg, help_photo, feedback_text, what_can_I_do,
 	donate_text, reasons_text, startup_text, save_methods,
 	artist_commands_queries
@@ -49,7 +50,7 @@ from configs.bot_settings import (
 	download_dir_max_size, time_sleep,
 	output_shazam, recorded_file_max_size,
 	root_ids, bunker_channel,
-	owl_channel, max_download_user
+	owl_channel
 )
 
 from utils.utils_users_bot import (
@@ -64,7 +65,7 @@ from utils.utils import (
 	is_supported_link, get_download_dir_size,
 	clear_download_dir, clear_recorded_dir,
 	my_round, create_tmux, get_url_path,
-	extract_supported_link
+	extract_media_link
 )
 
 from telegram.ext import (
@@ -87,7 +88,7 @@ from utils.search_cache import (
 	get_items, set_index, get_index,
 	set_scope, clear, get_query, get_scope,
 	get_user_message, get_display,
-	set_page, get_page
+	set_page, get_page, get_youtube
 )
 
 from inlines.message_results import (
@@ -223,33 +224,28 @@ def help_download(link, chat_id):
 
 		return
 
-	c_user_data = users_data[chat_id]
-	c_downloads = c_user_data['c_downloads']
+	start_download(
+		chat_id,
+		users_data[chat_id],
+		link,
+		DW,
+		(link, )
+	)
 
-	if len(c_downloads) == max_download_user:
-		bot.send_message(
-			chat_id = chat_id,
-			text = max_download_user_msg
+def handle_link(link, chat_id, user_message_id = None):
+	# One place decides which family a pasted link belongs to: both entry
+	# points route here so a YouTube link behaves the same whether it arrives
+	# plain or rich-formatted.
+	if is_youtube_link(link):
+		handle_youtube_link(
+			chat_id, link,
+			users_data[chat_id],
+			user_message_id
 		)
 
 		return
 
-	to_hash = f"{link}{c_user_data['quality']}{chat_id}{time()}".encode()
-	hash_link = md5(to_hash).hexdigest()
-	new_ins = DW(chat_id, c_user_data, hash_link)
-
-	t = magicThread(
-		target = new_ins.download,
-		args = (link, )
-	)
-
-	c_downloads[hash_link] = {
-		"link": link,
-		"thread": t,
-		"dw": new_ins
-	}
-
-	t.start()
+	help_download(link, chat_id)
 
 def _run_search(
 	chat_id, query, user_data,
@@ -446,7 +442,8 @@ def handle_callback_queries(update: Update, context):
 			set_index(chat_id, token, index)
 			edit_card(
 				bot, chat_id, msg_id,
-				token, items, index, c_user_data
+				token, items, index, c_user_data,
+				get_youtube(chat_id, token)
 			)
 
 	elif data.startswith("/srb:"):
@@ -464,7 +461,8 @@ def handle_callback_queries(update: Update, context):
 				bot, chat_id, msg_id, token, items,
 				get_display(chat_id, token),
 				has_filters, get_scope(chat_id, token),
-				get_page(chat_id, token)
+				get_page(chat_id, token),
+				get_youtube(chat_id, token)
 			)
 
 	elif data.startswith("/srp:"):
@@ -486,7 +484,8 @@ def handle_callback_queries(update: Update, context):
 			edit_list(
 				bot, chat_id, msg_id, token, items,
 				get_display(chat_id, token),
-				has_filters, get_scope(chat_id, token), page
+				has_filters, get_scope(chat_id, token), page,
+				get_youtube(chat_id, token)
 			)
 
 	elif data.startswith("/srf:"):
@@ -515,7 +514,8 @@ def handle_callback_queries(update: Update, context):
 				edit_list(
 					bot, chat_id, msg_id, token, items,
 					get_display(chat_id, token),
-					True, scope, get_page(chat_id, token)
+					True, scope, get_page(chat_id, token),
+					get_youtube(chat_id, token)
 				)
 
 	elif data.startswith("/src:"):
@@ -557,6 +557,26 @@ def handle_callback_queries(update: Update, context):
 				help_download(item['link'], chat_id)
 
 			# the download cleans the search up behind it
+			delete_search_messages(bot, chat_id, msg_id, token)
+
+	elif data.startswith("/ydw:"):
+		mode = "ydw"
+		answer = "GOOD CHOICE :)"
+		c_data = data.replace("/ydw:", "")
+		s_data = c_data.split(":")
+		token = s_data[0]
+		c_video_id = s_data[1] if len(s_data) > 1 else ""
+		# a malformed/forged id answers the callback instead of starting a
+		# download; the token only cleans the view up afterwards
+		c_deezer_id = s_data[2] if len(s_data) > 2 and s_data[2] else None
+
+		if not is_video_id(c_video_id):
+			answer = "Sorry isn't avalaible :("
+		else:
+			start_youtube_download(
+				chat_id, c_video_id, c_user_data, c_deezer_id
+			)
+
 			delete_search_messages(bot, chat_id, msg_id, token)
 
 	elif data.startswith("/ctx:"):
@@ -1114,12 +1134,12 @@ def msgs_handler(update: Update, context):
 	help_check_user(chat_id, date, from_user = msg.from_user)
 
 	# a link pasted with rich formatting carries a TEXT_LINK entity, so the
-	# control_links handler (URL entity filter) never sees it: try a music
-	# link here before falling through to a text search of the link label
-	c_link = extract_supported_link(msg.text, msg.entities)
+	# control_links handler (URL entity filter) never sees it: try a music or
+	# YouTube link here before falling through to a text search of the label
+	c_link = extract_media_link(msg.text, msg.entities)
 
 	if c_link:
-		help_download(c_link, chat_id)
+		handle_link(c_link, chat_id, msg.message_id)
 
 		return
 
@@ -1144,15 +1164,15 @@ def controls_links(update: Update, context):
 	chat_id = msg.from_user.id
 	date = msg.date
 	help_check_user(chat_id, date, from_user = msg.from_user)
-	link = extract_supported_link(msg.text, msg.entities)
+	link = extract_media_link(msg.text, msg.entities)
 
-	# no music link among the entities: legacy path, the URL filter
+	# no music/YouTube link among the entities: legacy path, the URL filter
 	# guaranteed entities[0] before this change
 	if not link:
 		entity_link = msg.entities[0]
 		link = msg.parse_entity(entity_link)
 
-	help_download(link, chat_id)
+	handle_link(link, chat_id, msg.message_id)
 
 dispatcher = SetConfigs.tg_bot_api.dispatcher
 
