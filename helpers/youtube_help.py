@@ -341,6 +341,13 @@ class YT:
 		key = cache_key(video_id)
 
 		if self.__serve_cached(key):
+			# a cached delivery is a finished download too: the Deezer flow
+			# closes every successful serve with the same note
+			bot.send_message(
+				chat_id = self.__chat_id,
+				text = "FINISHED =)"
+			)
+
 			return
 
 		progress_message_id = bot.send_message(
