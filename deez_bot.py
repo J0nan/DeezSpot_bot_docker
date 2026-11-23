@@ -17,7 +17,11 @@ from sys import argv
 from time import sleep
 from telegram import ParseMode
 from helpers.download_help import DW, start_download
-from helpers.youtube_help import handle_youtube_link, start_youtube_download
+from helpers.youtube_help import (
+	begin_youtube_edit, cancel_youtube_download,
+	confirm_youtube_download, handle_youtube_edit_text,
+	handle_youtube_link, prepare_youtube_download
+)
 from utils.youtube import is_video_id, is_youtube_link
 from pyrogram import idle as tg_user_start
 from utils.special_thread import magicThread
@@ -575,17 +579,51 @@ def handle_callback_queries(update: Update, context):
 		if not is_video_id(c_video_id):
 			answer = "Sorry isn't avalaible :("
 		else:
-			started = start_youtube_download(
-				chat_id, c_video_id, c_user_data, c_deezer_id
+			# nothing is downloaded yet: the confirmation card shows the
+			# metadata the tags will carry and lets the user fix it
+			sent = prepare_youtube_download(chat_id, c_video_id, c_deezer_id)
+
+			if sent:
+				# the search view is done with: the card replaced it
+				delete_search_messages(bot, chat_id, msg_id, token)
+
+	elif data.startswith("/yte:"):
+		mode = "yte"
+		answer = "GOOD CHOICE :)"
+		c_data = data.replace("/yte:", "")
+		s_data = c_data.split(":")
+		c_pending_id = s_data[0]
+		c_field = s_data[1] if len(s_data) > 1 else ""
+
+		if not begin_youtube_edit(chat_id, c_pending_id, c_field):
+			answer = too_old_answer
+
+	elif data.startswith("/ytc:"):
+		mode = "ytc"
+		answer = "GOOD CHOICE :)"
+		c_data = data.replace("/ytc:", "")
+		s_data = c_data.split(":")
+		c_pending_id = s_data[0]
+		c_action = s_data[1] if len(s_data) > 1 else ""
+
+		if c_action == "cancel":
+			if cancel_youtube_download(chat_id, c_pending_id):
+				answer = "CANCELED :)"
+			else:
+				answer = too_old_answer
+		elif c_action == "download":
+			started = confirm_youtube_download(
+				chat_id, c_pending_id, c_user_data
 			)
 
-			if started:
-				# the download cleans the search up behind it
-				delete_search_messages(bot, chat_id, msg_id, token)
-			else:
-				# the per-user cap refused it: keep the card and its button so
-				# the user can retry once a slot frees up
+			if started is None:
+				answer = too_old_answer
+			elif not started:
+				# the per-user cap refused it: the card stays tappable so the
+				# user can confirm again once a slot frees up
 				answer = "TOO MANY DOWNLOADS, TRY AGAIN LATER"
+		else:
+			answer = "Sorry isn't avalaible :("
 
 	elif data.startswith("/ctx:"):
 		mode = "ctx"
@@ -1141,6 +1179,11 @@ def msgs_handler(update: Update, context):
 	date = msg.date
 	help_check_user(chat_id, date, from_user = msg.from_user)
 
+	# the metadata confirmation asked this chat for one value: the next
+	# message is it, never a search
+	if handle_youtube_edit_text(chat_id, msg.text):
+		return
+
 	# a link pasted with rich formatting carries a TEXT_LINK entity, so the
 	# control_links handler (URL entity filter) never sees it: try a music or
 	# YouTube link here before falling through to a text search of the label
@@ -1172,6 +1215,12 @@ def controls_links(update: Update, context):
 	chat_id = msg.from_user.id
 	date = msg.date
 	help_check_user(chat_id, date, from_user = msg.from_user)
+
+	# a URL pasted while the confirmation waits for a value is that value,
+	# not a new download
+	if handle_youtube_edit_text(chat_id, msg.text):
+		return
+
 	link = extract_media_link(msg.text, msg.entities)
 
 	# no music/YouTube link among the entities: legacy path, the URL filter

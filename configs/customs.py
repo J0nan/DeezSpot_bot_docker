@@ -100,6 +100,27 @@ send_image_track_query = (
 	\n📅 Release date: %s"
 )
 
+# YouTube downloads are confirmed before the worker starts: the card shows the
+# exact metadata the tags will carry and the buttons below it fix any field.
+youtube_confirm_caption = (
+	"⬇️ THIS IS WHAT THE BOT WILL TAG\
+	\n\n🎧 Track title: %s\
+	\n👤 Artist(s): %s\
+	\n💽 Album: %s\
+	\n📅 Release date: %s\
+	\n\nDifferent artists are separated with &"
+)
+
+youtube_edit_prompts = {
+	"title": "Send me the new track title 👇",
+	"artist": "Send me the new artist(s), separated with & 👇",
+	"album": "Send me the new album 👇",
+}
+
+youtube_edit_invalid = (
+	"THAT VALUE CANNOT BE USED, SEND IT AGAIN 👇"
+)
+
 send_image_album_query = (
 	"💽 Album: %s\
 	\n👤 Artist: %s\

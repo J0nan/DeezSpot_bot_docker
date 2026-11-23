@@ -11,6 +11,7 @@ playlist parameter, a timestamp or a mobile/music host never changes what gets
 downloaded.
 """
 
+from hashlib import md5
 from os.path import isfile, join
 from re import compile as re_compile, search as re_search
 from urllib.parse import parse_qs, urlparse
@@ -160,9 +161,24 @@ def is_video_id(value):
 	# validation for ids that arrive back from a callback payload
 	return isinstance(value, str) and bool(VIDEO_ID_PATTERN.fullmatch(value))
 
-def cache_key(video_id):
+def cache_key(video_id, meta = None):
 	# namespaced so a dwsongs row can never collide with a Deezer/Spotify path
-	return f"youtube/{video_id}"
+	if not meta:
+		return f"youtube/{video_id}"
+
+	# A confirmed tag set is its own deliverable: the cached file still carries
+	# the tags it was uploaded with, so replaying it for a different tag set
+	# would hand back the old metadata. The full digest covers every tagged
+	# field (the date is tagged too) and keeps the variants apart without a
+	# shortened fingerprint that two different tag sets could collide on.
+	fingerprint = md5(
+		"\x1f".join(
+			(meta.get(field) or "")
+			for field in ("title", "artist", "album", "date")
+		).encode()
+	).hexdigest()
+
+	return f"youtube/{video_id}/{fingerprint}"
 
 def _label(text):
 	return " ".join(text.lower().split())
@@ -208,6 +224,21 @@ def split_artist_title(title):
 			return artist, song
 
 	return "", title
+
+# The user types several performers separated with this character; it is also
+# what ends up in the tags, the Telegram performer and the file name.
+ARTIST_SEPARATOR = "&"
+
+def normalize_artists(value):
+	# "A&B", "A & B" and " A  &&  B " all become "A & B": the separator is
+	# normalized once here so the tag, the caption and the file name agree.
+	names = [
+		" ".join(part.split())
+		for part in (value or "").split(ARTIST_SEPARATOR)
+		if part.strip()
+	]
+
+	return f" {ARTIST_SEPARATOR} ".join(names)
 
 def normalize_date(raw):
 	# yt-dlp reports upload_date/release_date as YYYYMMDD, Deezer as
