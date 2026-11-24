@@ -3,7 +3,7 @@
 import os
 from datetime import datetime
 
-version = 4.0
+version = 5.0
 bot_name = os.environ.get("BOT_NAME", "@")
 creator = "@"
 donation = "https://www.google.com"
