@@ -263,20 +263,25 @@ def __send_confirm_card(chat_id, entry):
 	entry["message_id"] = message.message_id
 
 def __repaint_card(chat_id, entry):
+	# The caption is replaced, not appended: the same buttons must ride along
+	# or the edited card would lose its Edit/Download/Cancel row.
 	caption = confirm_caption(entry["meta"])
+	markup = create_youtube_confirm_keyboard(entry["id"])
 
 	try:
 		if entry["has_photo"]:
 			bot.edit_message_caption(
 				chat_id = chat_id,
 				message_id = entry["message_id"],
-				caption = caption
+				caption = caption,
+				reply_markup = markup
 			)
 		else:
 			bot.edit_message_text(
 				chat_id = chat_id,
 				message_id = entry["message_id"],
-				text = caption
+				text = caption,
+				reply_markup = markup
 			)
 	except TelegramError:
 		# identical caption (re-entering the same value) or a card the user
@@ -312,20 +317,25 @@ def __drop_card(chat_id, entry, strip_only = False):
 	except TelegramError:
 		pass
 
+def __delete_message(chat_id, message_id):
+	if message_id is None:
+		return
+
+	try:
+		bot.delete_message(
+			chat_id = chat_id,
+			message_id = message_id
+		)
+	except TelegramError:
+		pass
+
 def __delete_prompt(chat_id, entry):
 	prompt_id = entry.get("prompt_id")
 
 	if prompt_id is None:
 		return
 
-	try:
-		bot.delete_message(
-			chat_id = chat_id,
-			message_id = prompt_id
-		)
-	except TelegramError:
-		pass
-
+	__delete_message(chat_id, prompt_id)
 	entry["prompt_id"] = None
 
 def prepare_youtube_download(chat_id, video_id, deezer_id = None):
@@ -450,7 +460,7 @@ def begin_youtube_edit(chat_id, pending_id, field):
 
 	return True
 
-def handle_youtube_edit_text(chat_id, text):
+def handle_youtube_edit_text(chat_id, text, message_id = None):
 	# The card asked for exactly one value: the next message of this chat is
 	# it. A command keeps reaching its own handler and never becomes a title.
 	entry = pending_download(chat_id)
@@ -500,6 +510,9 @@ def handle_youtube_edit_text(chat_id, text):
 
 	entry["stage"] = None
 	__delete_prompt(chat_id, entry)
+	# the typed value is consumed by the card: the chat keeps the prompt-free
+	# card, not a stray line echoing what was sent
+	__delete_message(chat_id, message_id)
 	__save_pending(chat_id, entry)
 	__repaint_card(chat_id, entry)
 

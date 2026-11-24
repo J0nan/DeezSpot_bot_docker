@@ -1181,7 +1181,7 @@ def msgs_handler(update: Update, context):
 
 	# the metadata confirmation asked this chat for one value: the next
 	# message is it, never a search
-	if handle_youtube_edit_text(chat_id, msg.text):
+	if handle_youtube_edit_text(chat_id, msg.text, msg.message_id):
 		return
 
 	# a link pasted with rich formatting carries a TEXT_LINK entity, so the
@@ -1218,7 +1218,7 @@ def controls_links(update: Update, context):
 
 	# a URL pasted while the confirmation waits for a value is that value,
 	# not a new download
-	if handle_youtube_edit_text(chat_id, msg.text):
+	if handle_youtube_edit_text(chat_id, msg.text, msg.message_id):
 		return
 
 	link = extract_media_link(msg.text, msg.entities)
