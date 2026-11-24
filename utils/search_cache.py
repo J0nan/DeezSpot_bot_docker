@@ -43,7 +43,10 @@ def __alive_entry(chat_id, token):
 
 	return entry
 
-def store(chat_id, items, query = "", user_message_id = None, display = None) -> str:
+def store(
+	chat_id, items, query = "", user_message_id = None, display = None,
+	youtube_id = None, youtube_deezer_id = None
+) -> str:
 	global _counter
 
 	with _lock:
@@ -68,7 +71,12 @@ def store(chat_id, items, query = "", user_message_id = None, display = None) ->
 			"query": query,
 			"scope": "all",
 			"user_message_id": user_message_id,
-			"display": display if display is not None else query
+			"display": display if display is not None else query,
+			# a search started from a YouTube link carries the video id (and
+			# the matched Deezer track id) so every repaint of this entry can
+			# re-render its "Download from YouTube" button; None otherwise
+			"youtube_id": youtube_id,
+			"youtube_deezer_id": youtube_deezer_id
 		}
 		# full replace, never accumulate; the fresh entry starts most-recent
 		_entries.pop(chat_id, None)
@@ -197,6 +205,26 @@ def resolve(chat_id, token, index) -> dict | None:
 		item = items[index]
 
 	return item
+
+def get_youtube(chat_id, token):
+	# The "Download from YouTube" payload of the chat's live search: the video
+	# id plus the matched Deezer track id (None when the video matched
+	# nothing). Every repaint (paging, filters, detail card) renders the row
+	# from this instead of re-embedding it in the callback data.
+	with _lock:
+		entry = __alive_entry(chat_id, token)
+
+		if entry is None:
+			return None
+
+		_entries.move_to_end(chat_id)
+		video_id = entry["youtube_id"]
+		deezer_id = entry["youtube_deezer_id"]
+
+	if not video_id:
+		return None
+
+	return video_id, deezer_id
 
 def attach_message(chat_id, token, message_id) -> None:
 	with _lock:

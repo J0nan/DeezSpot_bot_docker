@@ -9,7 +9,7 @@
 - This project is licensed under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)
 
 * ### PYTHON VERSION SUPPORTED ###
-	![Python >= 3.9](https://img.shields.io/badge/python-v%3E=3.9-blue)
+	![Python >= 3.11](https://img.shields.io/badge/python-v%3E=3.11-blue)
 
 * ### OS Supported ###
 	![Linux Support](https://img.shields.io/badge/Linux-Support-brightgreen.svg)
@@ -25,7 +25,7 @@ Every command the bot answers to, for reference and for the Telegram Bot Father 
 | `/start` | — | Main menu with the search prefix buttons |
 | `/help` | — | How-to photo + short usage text |
 | `/search` | `[query]` | Searches Deezer |
-| `/settings` | — | Your settings: quality, source, filename scheme, zip/track sending |
+| `/settings` | — | Your settings: quality, source, filename scheme, zip/track sending, YouTube link behaviour |
 | `/quality` | — | Quick picker for your download quality |
 | `/shazam` | — | Explains that a voice note or audio file gets recognized and downloaded |
 | `/kill_dw` | — | Lists your running downloads with a kill button each |
@@ -58,7 +58,20 @@ add_banned - ADMIN ONLY
 users - ADMIN ONLY
 ```
 
-Also note: pasting a Deezer or Spotify **link** (track/album/playlist/artist) is not a command but downloads directly, plain or rich-formatted, and any plain text in a private chat runs a search.
+Also note: pasting a Deezer or Spotify **link** (track/album/playlist/artist) is not a command but downloads directly, plain or rich-formatted, and any plain text in a private chat runs a search. Pasting a **YouTube** link behaves as described below.
+
+# YouTube links
+
+A pasted YouTube link (`youtube.com/watch?v=…`, `youtu.be/…`, Shorts, `music.youtube.com`, `m.youtube.com`) is handled according to the **YouTube links** setting in `/settings`:
+
+- **Search** (default): the video title is searched on Deezer as a song and the result list is shown with an always-present `⬇️ Download from YouTube` button. The button is there even when Deezer finds nothing — the 404 card carries it too — and it survives paging, the type filters and opening a result's detail card.
+- **Download**: the video is downloaded straight away, no Deezer search and no confirmation step.
+
+Tapping `⬇️ Download from YouTube` does not start the audio right away: a **confirmation card** appears with the video artwork and the exact metadata the tags will carry (title, artist(s), album, release date). Its buttons edit any field — `✏️ Title`, `👤 Artists`, `💽 Album` ask for the new value in the chat, `✅ Download` starts the download and `❌ Cancel` drops the card. Different artists are separated with `&`: `"A & B"`, `"A&B"` and `" A  &&  B "` all become `A & B` in the tags, the Telegram performer and the file name. An edited tag set is cached under its own key, so a later request with the untouched metadata never replays a file carrying someone else's edits.
+
+Both paths deliver an **mp3 at 320 kbps** (the maximum MP3 bitrate; the source stream is `bestaudio`, never a downgraded video track) with ID3 tags for title, artist, album and release date, and the **video miniature as the cover art**. YouTube metadata is authoritative; a matched Deezer track only fills in an album or release date YouTube does not report. Downloads are cached like every other track, appear in `/kill_dw` and count against `MAX_DOWNLOAD_USER`, a video longer than `SECONDS_LIMITS_TRACK` is refused, and live or unknown-length streams are refused up front because their duration cannot be bounded. Each download writes its own working file, so two users fetching the same video never overwrite each other.
+
+Only the video id is used: a link that also carries a playlist (`&list=…`) downloads that one video. YouTube support needs `yt-dlp` (installed from `req.txt` with its EJS solver and bundled Deno runtime, hence the Python 3.11 floor) and `ffmpeg` (already in the image) for the mp3 conversion.
 
 # SET UP
 Docker Variables:

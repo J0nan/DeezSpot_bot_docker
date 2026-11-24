@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 from time import sleep, time
+from hashlib import md5
 from os.path import isfile
 from telegram import ChatAction
 from telegram.error import BadRequest
@@ -9,6 +10,7 @@ from deezloader.models.album import Album
 from configs.set_configs import SetConfigs
 from deezloader.exceptions import TrackNotFound
 from deezloader.libutils.utils import request, what_kind
+from utils.special_thread import magicThread
 from inlines.inline_keyboards import create_keyboard_artist
 from deezloader.deezloader.cover_art import fetch_thumb
 from deezloader.__taggers__ import has_picture
@@ -34,7 +36,8 @@ from utils.thumb_utils import make_thumb_io
 from configs.customs import (
 	send_image_track_query, send_image_artist_query,
 	send_image_playlist_query, send_image_album_query,
-	album_too_long, track_too_long
+	album_too_long, track_too_long,
+	max_download_user_msg
 )
 
 from utils.utils_data import (
@@ -50,7 +53,8 @@ from configs.bot_settings import (
 	method_save, output_songs,
 	recursive_quality, recursive_download,
 	upload_max_size_user, user_errors,
-	progress_status_rate, is_thread
+	progress_status_rate, is_thread,
+	max_download_user
 )
 
 bot = SetConfigs.tg_bot_api.bot
@@ -62,6 +66,41 @@ COVER_RETRY_COOLDOWN = 3600.0
 
 def log_error(log, exc_info = False):
 	l_downloads.error(log, exc_info = exc_info)
+
+def start_download(chat_id, user_data, link, worker_class, args = ()):
+	# One starter for every download kind (Deezer, Spotify and YouTube): the
+	# per-user concurrency guard, the hash that /kill_dw sends back and the
+	# c_downloads registration live here instead of being copied per flow.
+	c_downloads = user_data['c_downloads']
+
+	# >= instead of the old ==: an over-cap map (two taps racing the check)
+	# used to disable the guard for good
+	if len(c_downloads) >= max_download_user:
+		bot.send_message(
+			chat_id = chat_id,
+			text = max_download_user_msg
+		)
+
+		return False
+
+	to_hash = f"{link}{user_data['quality']}{chat_id}{time()}".encode()
+	hash_link = md5(to_hash).hexdigest()
+	new_ins = worker_class(chat_id, user_data, hash_link)
+
+	t = magicThread(
+		target = new_ins.download,
+		args = args
+	)
+
+	c_downloads[hash_link] = {
+		"link": link,
+		"thread": t,
+		"dw": new_ins
+	}
+
+	t.start()
+
+	return True
 
 def delivered_has_cover(song_path, file_format):
 	# The flag follows the delivered file, not the fetched bytes. A file the

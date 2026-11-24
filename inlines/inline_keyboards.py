@@ -83,7 +83,7 @@ __l_bot_settings = len(bot_settings_config)
 
 def create_keyboard_settings(datas):
 
-	settings_x = [0, 1, 2, 4, 6] #bot_settings_config you want to show, setting is in customs (index 5 "Search Method" is hidden, the DB column stays untouched)
+	settings_x = [0, 1, 2, 4, 6, 7] #bot_settings_config you want to show, setting is in customs (index 5 "Search Method" is hidden, the DB column stays untouched)
 
 	bot_settings_configs = [bot_settings_config[i] for i in settings_x]
 	datas = [list(datas.values())[i] for i in settings_x]
@@ -250,6 +250,39 @@ def create_users_keyboard(page, pages):
 
 	users_keyboard = InlineKeyboardMarkup([nav_row])
 	return users_keyboard
+
+def create_youtube_confirm_keyboard(pending_id):
+	# the pending id keeps a tap on a stale card from editing (or starting) a
+	# newer confirmation of the same chat
+	keyboard_confirm = [
+		[
+			InlineKeyboardButton(
+				"✏️ Title",
+				callback_data = f"/yte:{pending_id}:title"
+			),
+			InlineKeyboardButton(
+				"👤 Artists",
+				callback_data = f"/yte:{pending_id}:artist"
+			),
+			InlineKeyboardButton(
+				"💽 Album",
+				callback_data = f"/yte:{pending_id}:album"
+			)
+		],
+		[
+			InlineKeyboardButton(
+				"✅ Download",
+				callback_data = f"/ytc:{pending_id}:download"
+			),
+			InlineKeyboardButton(
+				"❌ Cancel",
+				callback_data = f"/ytc:{pending_id}:cancel"
+			)
+		]
+	]
+
+	confirm_keyboard = InlineKeyboardMarkup(keyboard_confirm)
+	return confirm_keyboard
 
 def create_c_dws_user_keyboard(dws: dict):
 	keyboad_dws = [

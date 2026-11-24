@@ -3,7 +3,7 @@
 import os
 from datetime import datetime
 
-version = 4.0
+version = 5.0
 bot_name = os.environ.get("BOT_NAME", "@")
 creator = "@"
 donation = "https://www.google.com"
@@ -22,6 +22,9 @@ banning_msg2 = "CONGRATULATIONS YOU ARE BANNED =)"
 
 album_too_long = "DON'T YOU GET BORE LISTENING AN ALBUM SO LONG :)))"
 track_too_long = "DON'T YOU GET BORE LISTENING A TRACK SO LONG :)))"
+# Live and upcoming streams report no fixed duration, so the length limit
+# cannot bound them: they are refused up front instead of recording forever.
+youtube_unbounded_msg = "LIVE OR UNKNOWN-LENGTH VIDEOS CANNOT BE DOWNLOADED :("
 
 shazam_function_msg = "You found a fantastic function, if you send a vocal message or an audio, you will see :)"
 max_download_user_msg = "You have reached, max download per time available, wait or kill someone :)"
@@ -55,8 +58,9 @@ what_can_I_do = (
 	"Glad you asked, I can do:\
 	\n1): Download songs in three different qualities (/quality)\
 	\n2): Zip sending\
-	\n3): I hope enough performing JAJAJAJAJAJ\
-	\n4): I am too lazy to continue, found out by yourself :)"
+	\n3): Search Deezer with text, and turn a YouTube link into a Deezer search or a direct mp3 download (/settings)\
+	\n4): I hope enough performing JAJAJAJAJAJ\
+	\n5): I am too lazy to continue, found out by yourself :)"
 )
 
 save_methods = (
@@ -68,6 +72,12 @@ save_methods = (
     #"4: {tracknumber}. {music}" example
 )
 
+# The two behaviours a pasted YouTube link can have in /settings. The value is
+# stored as the label users see, like Download Source. utils/db.py mirrors the
+# default in its DDL because that module stays stdlib-only for the tests.
+youtube_search_mode = "Search"
+youtube_download_mode = "Download"
+
 bot_settings_config = [
 	("Quality", "quality", "MP3_320"),
 	("Send zips", "zips", True),
@@ -75,7 +85,12 @@ bot_settings_config = [
 	("Language", "lang", "en"),
 	("Download Source", "source", "Dee"),
 	("Search Method", "search_method", "results_audio_article"),
-	("Save Method", "method_save", "1")
+	("Save Method", "method_save", "1"),
+	# Appended LAST on purpose: utils/db.py, utils_users_bot.py and
+	# inlines/inline_keyboards.py read these columns by position, so a new
+	# setting only ever goes at the end. "Search" = show the Deezer results
+	# with the YouTube download button, "Download" = fetch the video directly.
+	("YouTube links", "youtube", youtube_search_mode)
 ]
 
 send_image_track_query = (
@@ -83,6 +98,27 @@ send_image_track_query = (
 	\n👤 Artist: %s\
 	\n💽 Album: %s\
 	\n📅 Release date: %s"
+)
+
+# YouTube downloads are confirmed before the worker starts: the card shows the
+# exact metadata the tags will carry and the buttons below it fix any field.
+youtube_confirm_caption = (
+	"⬇️ THIS IS WHAT THE BOT WILL TAG\
+	\n\n🎧 Track title: %s\
+	\n👤 Artist(s): %s\
+	\n💽 Album: %s\
+	\n📅 Release date: %s\
+	\n\nDifferent artists are separated with &"
+)
+
+youtube_edit_prompts = {
+	"title": "Send me the new track title 👇",
+	"artist": "Send me the new artist(s), separated with & 👇",
+	"album": "Send me the new album 👇",
+}
+
+youtube_edit_invalid = (
+	"THAT VALUE CANNOT BE USED, SEND IT AGAIN 👇"
 )
 
 send_image_album_query = (

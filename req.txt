@@ -7,3 +7,7 @@ matplotlib
 git+https://github.com/kokarare1212/librespot-python
 ffmpeg
 spotapi>=2.1,<3
+# YouTube downloads. The extras pull the EJS challenge solver and a bundled
+# Deno runtime, which current yt-dlp needs for YouTube extraction; ffmpeg (in
+# the image) does the mp3 conversion. Requires Python >= 3.11.
+yt-dlp[default,deno]

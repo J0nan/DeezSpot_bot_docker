@@ -127,7 +127,26 @@ def list_caption(display, items, page = 0):
 
 	return f"{header} ({len(items)})"
 
-def create_keyboard_list(token, items, has_filters, scope, page = 0):
+def __youtube_row(token, youtube):
+	# telegram caps callback_data at 64 bytes: "/ydw:" + an 8-char token + an
+	# 11-char video id + an optional numeric Deezer id stays far below it
+	if not youtube:
+		return None
+
+	video_id, deezer_id = youtube
+	payload = f"/ydw:{token}:{video_id}"
+
+	if deezer_id:
+		payload += f":{deezer_id}"
+
+	return [
+		InlineKeyboardButton(
+			"⬇️ Download from YouTube",
+			callback_data = payload
+		)
+	]
+
+def create_keyboard_list(token, items, has_filters, scope, page = 0, youtube = None):
 	visible = page_items(items, page)
 	# the missing feat./collab names of the tracks about to be rendered are
 	# looked up here, once per track, and cached on the item itself
@@ -142,6 +161,13 @@ def create_keyboard_list(token, items, has_filters, scope, page = 0):
 		]
 		for index, item in enumerate(visible)
 	]
+
+	youtube_row = __youtube_row(token, youtube)
+
+	if youtube_row:
+		# primary action of a search started from a YouTube link: it sits above
+		# paging and filters and survives every repaint of this entry
+		rows.append(youtube_row)
 
 	pages = total_pages(items)
 
@@ -306,7 +332,7 @@ def __contextual_rows(token, item):
 
 	return [row] if row else []
 
-def create_keyboard_result(token, items, index, user_data):
+def create_keyboard_result(token, items, index, user_data, youtube = None):
 	item = items[index]
 
 	download_text = "⬇️ Download"
@@ -329,6 +355,12 @@ def create_keyboard_result(token, items, index, user_data):
 		]
 	]
 
+	youtube_row = __youtube_row(token, youtube)
+
+	if youtube_row:
+		# same search, same video: opening a result must not hide the row
+		card_keyboard.append(youtube_row)
+
 	contextual_rows = __contextual_rows(token, item)
 
 	if contextual_rows:
@@ -344,9 +376,9 @@ def create_keyboard_result(token, items, index, user_data):
 	search_keyboard = InlineKeyboardMarkup(card_keyboard)
 	return search_keyboard
 
-def send_list(bot, chat_id, token, items, display, has_filters, scope, page = 0):
+def send_list(bot, chat_id, token, items, display, has_filters, scope, page = 0, youtube = None):
 	reply_markup = create_keyboard_list(
-		token, items, has_filters, scope, page
+		token, items, has_filters, scope, page, youtube
 	)
 	caption = list_caption(display, items, page)
 
@@ -367,9 +399,9 @@ def send_list(bot, chat_id, token, items, display, has_filters, scope, page = 0)
 
 	return message
 
-def edit_list(bot, chat_id, message_id, token, items, display, has_filters, scope, page = 0):
+def edit_list(bot, chat_id, message_id, token, items, display, has_filters, scope, page = 0, youtube = None):
 	reply_markup = create_keyboard_list(
-		token, items, has_filters, scope, page
+		token, items, has_filters, scope, page, youtube
 	)
 
 	try:
@@ -396,14 +428,14 @@ def edit_list(bot, chat_id, message_id, token, items, display, has_filters, scop
 		if "not modified" not in str(error).lower():
 			raise
 
-def edit_card(bot, chat_id, message_id, token, items, index, user_data):
+def edit_card(bot, chat_id, message_id, token, items, index, user_data, youtube = None):
 	item = items[index]
 	# a card can be reached without its page ever having been rendered
 	# (contextual jumps, an old message), so the credit list is upgraded here
 	# too -- and it is the untruncated copy the caption shows
 	expand_track_credits([item])
 	reply_markup = create_keyboard_result(
-		token, items, index, user_data
+		token, items, index, user_data, youtube
 	)
 
 	try:
@@ -431,17 +463,24 @@ def edit_card(bot, chat_id, message_id, token, items, index, user_data):
 		if "not modified" not in str(error).lower():
 			raise
 
-def send_not_found(bot, chat_id):
+def send_not_found(bot, chat_id, caption = None, reply_markup = None):
+	# caption/reply_markup let a caller keep the 404 image but carry its own
+	# buttons: a YouTube link whose Deezer search found nothing still has a
+	# download to offer. Defaults preserve the plain 404 card.
+	caption = not_found_title if caption is None else caption
+
 	try:
 		message = bot.send_photo(
 			chat_id = chat_id,
 			photo = not_found_query_gif,
-			caption = not_found_title
+			caption = caption,
+			reply_markup = reply_markup
 		)
 	except TelegramError:
 		message = bot.send_message(
 			chat_id = chat_id,
-			text = not_found_title
+			text = caption,
+			reply_markup = reply_markup
 		)
 
 	return message
